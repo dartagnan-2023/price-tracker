@@ -4,7 +4,7 @@ import { DATA_DIR, FAILED_DIR, INBOX_DIR, PENDING_REVIEW_DIR, PROCESSED_DIR } fr
 import { startWatcher } from "./watcher.js";
 
 const app = buildApp();
-const port = Number(process.env.PORT) || 3000;
+const port = Number(process.env.PORT) || 3100;
 const host = process.env.HOST ?? "0.0.0.0";
 
 const start = async () => {

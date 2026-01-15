@@ -42,7 +42,8 @@ export async function batchesRoutes(app: FastifyInstance) {
             originalFilename: batch.fileAsset.originalFilename,
             fileType: batch.fileAsset.fileType
           }
-        : null
+        : null,
+      fullDate: batch.fullDate
     }));
   });
 
@@ -78,7 +79,8 @@ export async function batchesRoutes(app: FastifyInstance) {
             originalFilename: batch.fileAsset.originalFilename,
             fileType: batch.fileAsset.fileType
           }
-        : null
+        : null,
+      fullDate: batch.fullDate
     };
   });
 

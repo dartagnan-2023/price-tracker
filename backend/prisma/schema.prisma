@@ -33,6 +33,7 @@ model ImportBatch {
   ocrConfidenceAvg  Float?
   mappingConfidence Float?
   competenceSource  String?
+  fullDate          String?
   mappingProfileId  Int?
   mappingProfile    MappingProfile? @relation(fields: [mappingProfileId], references: [id], onDelete: SetNull)
   importedAt        DateTime      @default(now())

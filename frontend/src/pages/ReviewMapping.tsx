@@ -121,6 +121,7 @@ export function ReviewMapping() {
           <div><strong>OCR confidence:</strong> {batch.ocrConfidenceAvg ?? "-"}</div>
           <div><strong>Mapping confidence:</strong> {batch.mappingConfidence ?? "-"}</div>
           <div><strong>Competence source:</strong> {batch.competenceSource ?? preview.competenceSource ?? "-"}</div>
+          <div><strong>Data completa:</strong> {preview.fullDate ?? "-"}</div>
         </div>
       </section>
 

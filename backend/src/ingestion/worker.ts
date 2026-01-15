@@ -4,7 +4,11 @@ import path from "node:path";
 import { BatchStatus, CorrectionStatus, FileType } from "../constants.js";
 import { prisma } from "../db.js";
 import { FAILED_DIR, PENDING_REVIEW_DIR, PROCESSED_DIR } from "../config.js";
-import { detectCompetenceFromText } from "./detector.js";
+import {
+  detectCompetenceFromText,
+  detectFullDateFromText,
+  formatFullDate
+} from "./detector.js";
 import { detectHeaderMapping, findDescriptionHeader, normalizeHeaderValue } from "./mapper.js";
 import { detectFileType, parseFile } from "./file.js";
 import { normalizePartNumber, parsePriceToCents } from "./normalizer.js";
@@ -152,6 +156,12 @@ async function parseAndPersist({
     ocrOk
   });
 
+  const rawContent = parsed.rawText ?? parsed.rawLines?.join(" ") ?? "";
+  const dateFromContent = detectFullDateFromText(rawContent);
+  const dateFromFilename = detectFullDateFromText(fileName);
+  const fullDateValue = dateFromContent ?? dateFromFilename;
+  const formattedFullDate = fullDateValue ? formatFullDate(fullDateValue) : null;
+
   const monthRecord = detectedCompetence
     ? await getOrCreateMonth(detectedCompetence.year, detectedCompetence.month)
     : null;
@@ -190,7 +200,8 @@ async function parseAndPersist({
       pendingReason,
       ocrConfidenceAvg: ocrConfidence,
       mappingConfidence,
-      competenceSource
+      competenceSource,
+      fullDate: formattedFullDate
     });
 
     await prisma.importBatch.update({
@@ -224,7 +235,8 @@ async function parseAndPersist({
     pendingReason: null,
     ocrConfidenceAvg: ocrConfidence,
     mappingConfidence,
-    competenceSource
+    competenceSource,
+    fullDate: formattedFullDate
   });
 
   const knownPartNumbers = await loadKnownPartNumbers(batch.id);
@@ -367,6 +379,7 @@ type BatchUpsertInput = {
   ocrConfidenceAvg: number | null;
   mappingConfidence: number | null;
   competenceSource: string | null;
+  fullDate?: string | null;
 };
 
 async function upsertBatch({
@@ -378,6 +391,8 @@ async function upsertBatch({
   ocrConfidenceAvg,
   mappingConfidence,
   competenceSource
+  ,
+  fullDate
 }: BatchUpsertInput) {
   if (existingBatchId) {
     const isActive = monthId ? !(await hasActiveBatch(monthId, existingBatchId)) : false;
@@ -391,7 +406,8 @@ async function upsertBatch({
         pendingReason,
         ocrConfidenceAvg,
         mappingConfidence,
-        competenceSource
+        competenceSource,
+        fullDate
       }
     });
   }
@@ -407,7 +423,8 @@ async function upsertBatch({
       pendingReason,
       ocrConfidenceAvg,
       mappingConfidence,
-      competenceSource
+      competenceSource,
+      fullDate
     }
   });
 }

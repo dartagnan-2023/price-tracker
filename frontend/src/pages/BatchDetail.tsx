@@ -63,17 +63,18 @@ export function BatchDetail() {
 
       <section className="panel">
         <h2>Resumo</h2>
-        <div className="summary-grid">
-          <div><strong>Mes:</strong> {batch.month?.label ?? "-"}</div>
-          <div><strong>Ativo:</strong> {batch.isActive ? "Sim" : "Nao"}</div>
-          <div><strong>Linhas validas:</strong> {batch.validLines}/{batch.totalLines}</div>
-          <div><strong>Arquivo:</strong> {batch.fileAsset?.originalFilename ?? "-"}</div>
-          <div><strong>Pending reason:</strong> {batch.pendingReason ?? "-"}</div>
-          <div><strong>OCR confidence:</strong> {batch.ocrConfidenceAvg ?? "-"}</div>
-          <div><strong>Mapping confidence:</strong> {batch.mappingConfidence ?? "-"}</div>
-          <div><strong>Competence source:</strong> {batch.competenceSource ?? "-"}</div>
-        </div>
-      </section>
+          <div className="summary-grid">
+            <div><strong>Mes:</strong> {batch.month?.label ?? "-"}</div>
+            <div><strong>Ativo:</strong> {batch.isActive ? "Sim" : "Nao"}</div>
+            <div><strong>Linhas validas:</strong> {batch.validLines}/{batch.totalLines}</div>
+            <div><strong>Arquivo:</strong> {batch.fileAsset?.originalFilename ?? "-"}</div>
+            <div><strong>Pending reason:</strong> {batch.pendingReason ?? "-"}</div>
+            <div><strong>OCR confidence:</strong> {batch.ocrConfidenceAvg ?? "-"}</div>
+            <div><strong>Mapping confidence:</strong> {batch.mappingConfidence ?? "-"}</div>
+            <div><strong>Competence source:</strong> {batch.competenceSource ?? "-"}</div>
+            <div><strong>Data completa:</strong> {batch.fullDate ?? "-"}</div>
+          </div>
+        </section>
 
       {batch.errorLog && (
         <section className="panel">

@@ -1,5 +1,6 @@
 import { prisma } from "../db.js";
 import { centsToNumber } from "../ingestion/normalizer.js";
+import type { ProductLine } from "@prisma/client";
 
 export type ComparisonStatus = "new" | "removed" | "changed" | "equal";
 
@@ -27,7 +28,7 @@ export async function compareMonths(monthAId: number, monthBId: number, filter: 
     throw new Error("Batch ativo nao encontrado para um dos meses");
   }
 
-  const [linesA, linesB] = await Promise.all([
+  const [linesA, linesB]: [ProductLine[], ProductLine[]] = await Promise.all([
     prisma.productLine.findMany({ where: { importBatchId: batchA.id } }),
     prisma.productLine.findMany({ where: { importBatchId: batchB.id } })
   ]);
@@ -107,7 +108,7 @@ function calculateTotalsFromRows(rows: ComparisonRow[], side: "A" | "B") {
   return buildTotals(prices);
 }
 
-function calculateTotalsFromLines(lines: Array<{ unitPriceCents: number }>) {
+function calculateTotalsFromLines(lines: ProductLine[]) {
   const prices = lines.map((line) => centsToNumber(line.unitPriceCents) ?? 0);
   const filtered = prices.filter((value) => value > 0);
   return buildTotals(filtered);

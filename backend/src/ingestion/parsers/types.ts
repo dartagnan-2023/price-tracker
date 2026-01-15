@@ -1,6 +1,8 @@
+export type ParsedRow = Record<string, string>;
+
 export type ParsedFile = {
   headers: string[];
-  rows: Array<Record<string, string>>;
+  rows: ParsedRow[];
   confidence: number;
   rawText?: string;
   rawLines?: string[];

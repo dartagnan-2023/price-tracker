@@ -15,6 +15,7 @@ import { normalizePartNumber, parsePriceToCents } from "./normalizer.js";
 import { findBestMatch } from "./partnumber.js";
 import { PARTNUMBER_AUTO_THRESHOLD, PARTNUMBER_REVIEW_THRESHOLD } from "../config.js";
 import { validatePartNumber, validateUnitPriceCents } from "./validator.js";
+import type { ParsedRow } from "./parsers/types.js";
 
 export type ProcessResult = {
   status: "completed" | "pending_review" | "failed" | "duplicate";
@@ -240,7 +241,7 @@ async function parseAndPersist({
   });
 
   const knownPartNumbers = await loadKnownPartNumbers(batch.id);
-  const existingParts = targetBatchId
+  const existingParts: { partNumber: string }[] = targetBatchId
     ? await prisma.productLine.findMany({
         where: { importBatchId: batch.id },
         select: { partNumber: true }
@@ -253,7 +254,7 @@ async function parseAndPersist({
     && isDescriptionHeader(adjustedMapping.partNumber);
 
   const errors: string[] = [];
-  const productLines = parsed.rows.flatMap((row, index) => {
+  const productLines = parsed.rows.flatMap((row: ParsedRow, index: number) => {
     const rawPart = row[adjustedMapping.partNumber as string] ?? "";
     const rawPrice = row[adjustedMapping.unitPrice as string] ?? "";
     const rowLine = shouldApplyImageFallback(fileType)
@@ -447,7 +448,7 @@ async function loadKnownPartNumbers(currentBatchId: number): Promise<string[]> {
     _count: { partNumber: true }
   });
 
-  return rows.map((row) => row.partNumber);
+  return rows.map((row: { partNumber: string }) => row.partNumber);
 }
 
 type CorrectionResult = {

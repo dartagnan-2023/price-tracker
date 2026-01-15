@@ -1,0 +1,51 @@
+{
+  "name": "price-tracker-desktop",
+  "version": "0.1.0",
+  "description": "Price Tracker Desktop",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "electron .",
+    "build:assets": "node build.cjs",
+    "pack": "npm run build:assets && electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^29.4.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.price-tracker.desktop",
+    "productName": "Price Tracker",
+    "asar": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist",
+        "to": "backend/dist"
+      },
+      {
+        "from": "../backend/node_modules",
+        "to": "backend/node_modules"
+      },
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist"
+      },
+      {
+        "from": "../backend/eng.traineddata",
+        "to": "backend/eng.traineddata"
+      }
+    ],
+    "win": {
+      "target": "dir"
+    }
+  },
+  "dependencies": {
+    "price-tracker": "file:.."
+  }
+}

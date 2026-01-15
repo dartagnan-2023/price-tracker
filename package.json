@@ -1,0 +1,16 @@
+{
+  "name": "price-tracker",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c green,cyan \"powershell -NoProfile -Command \\\"$env:PORT=3100; npm --prefix backend run dev\\\"\" \"npm --prefix frontend run dev -- --port 5174\"",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "start": "npm --prefix backend run start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

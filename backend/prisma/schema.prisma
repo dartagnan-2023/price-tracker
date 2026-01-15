@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Month {
+  id        Int           @id @default(autoincrement())
+  year      Int
+  month     Int
+  label     String        @unique
+  createdAt DateTime      @default(now())
+  batches   ImportBatch[]
+
+  @@unique([year, month])
+}
+
+model ImportBatch {
+  id                Int           @id @default(autoincrement())
+  monthId           Int?
+  month             Month?        @relation(fields: [monthId], references: [id], onDelete: Cascade)
+  fileAssetId       Int?
+  fileAsset         FileAsset?    @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
+  status            String        @default("COMPLETED")
+  isActive          Boolean       @default(false)
+  totalLines        Int           @default(0)
+  validLines        Int           @default(0)
+  errorLog          String?
+  pendingReason     String?
+  ocrConfidenceAvg  Float?
+  mappingConfidence Float?
+  competenceSource  String?
+  mappingProfileId  Int?
+  mappingProfile    MappingProfile? @relation(fields: [mappingProfileId], references: [id], onDelete: SetNull)
+  importedAt        DateTime      @default(now())
+  productLines      ProductLine[]
+
+  @@index([monthId])
+  @@index([isActive, monthId])
+}
+
+model ProductLine {
+  id                   Int             @id @default(autoincrement())
+  importBatchId        Int
+  importBatch          ImportBatch     @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+  partNumber           String
+  rawPartNumber        String
+  unitPriceCents       Int
+  lineNumber           Int?
+  rawData              String?
+  correctionStatus     String          @default("NONE")
+  suggestedPartNumber  String?
+  correctionConfidence Float?
+  resolvedAt           DateTime?
+  resolvedBy           String?
+  resolutionNote       String?
+
+  @@index([importBatchId, partNumber])
+  @@index([partNumber])
+}
+
+model FileAsset {
+  id               Int          @id @default(autoincrement())
+  originalFilename String
+  filePath         String
+  fileType         String
+  fileSize         Int
+  hash             String       @unique
+  uploadedAt       DateTime     @default(now())
+  batches          ImportBatch[]
+}
+
+model MappingProfile {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  mappingJson  String
+  autoDetected Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  batches      ImportBatch[]
+}

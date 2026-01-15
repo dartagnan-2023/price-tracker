@@ -1,0 +1,26 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f2ea;
+  --panel: #ffffff;
+  --panel-border: #e6dfd3;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --accent: #0f766e;
+  --accent-strong: #115e59;
+  --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top left, #fdf7ed, #f5f2ea 45%, #efe7db 100%);
+  color: var(--text);
+}
+
+a {
+  color: inherit;
+}

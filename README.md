@@ -39,6 +39,7 @@ O frontend lê `VITE_API_BASE_URL` para decidir para onde mandar as requisiçõe
 ### Variáveis de ambiente
 
 -- `DATABASE_URL`: string de conexão usada pelo Prisma (encontre-a no `.env` e nos secrets do Render). Quando o valor é omitido, o backend usa SQLite local (`file:../data/price_tracker.db`), mas você pode definir uma URL do Supabase/Postgres para subir em um banco gerenciado.  
+  - `npm run start` (backend) agora garante esse fallback antes de correr as migrations, então o deploy roda mesmo sem variável explícita.
 - `AUTH_USER`, `AUTH_PASSWORD`, `AUTH_SECRET`: credenciais do login.  
 - `AUTH_ALLOW_UNAUTH=true`: permite consultar `/api/*` sem token (útil para testes rápidos ou quando o dashboard precisar ficar aberto sem autenticação).  
 - `VITE_API_BASE_URL`: URL base para o frontend (omitido se o domínio já serve `/api`).

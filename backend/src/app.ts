@@ -1,7 +1,7 @@
 import fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
-import fastifyStatic from "fastify-static";
+import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyReply } from "fastify";

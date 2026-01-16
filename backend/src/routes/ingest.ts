@@ -1,4 +1,6 @@
-import { FastifyInstance } from "fastify";
+import type { FastifyInstance } from "fastify";
+import type { FastifyRequest } from "fastify";
+import type { MultipartFile } from "@fastify/multipart";
 import { createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -32,7 +34,11 @@ export async function ingestRoutes(app: FastifyInstance) {
   });
 
   app.post("/ingest/upload", async (request, reply) => {
-    const data = await request.file();
+    type UploadRequest = FastifyRequest & {
+      file: () => Promise<MultipartFile | undefined>;
+    };
+    const uploadRequest = request as UploadRequest;
+    const data = await uploadRequest.file();
     if (!data) {
       reply.code(400);
       return { error: "Arquivo obrigatorio" };

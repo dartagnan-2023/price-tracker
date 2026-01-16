@@ -24,3 +24,7 @@ export const AUTH_SECRET = fallbackSecret;
 export const AUTH_USER = process.env.AUTH_USER ?? "admin";
 export const AUTH_PASSWORD = process.env.AUTH_PASSWORD ?? "password";
 export const AUTH_ALLOW_UNAUTH = process.env.AUTH_ALLOW_UNAUTH === "true";
+
+export const SUPABASE_URL = process.env.SUPABASE_URL;
+export const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+export const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET ?? "price-tracker-uploads";

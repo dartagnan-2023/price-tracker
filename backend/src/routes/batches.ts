@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { FileAsset } from "@prisma/client";
 import { prisma } from "../db.js";
 import { FAILED_DIR, INBOX_DIR, PENDING_REVIEW_DIR, PROCESSED_DIR } from "../config.js";
 import { FileType } from "../constants.js";
@@ -13,6 +14,7 @@ import { parseFile } from "../ingestion/file.js";
 import { detectHeaderMapping, findDescriptionHeader, normalizeHeaderValue } from "../ingestion/mapper.js";
 import { reprocessBatch } from "../ingestion/worker.js";
 import { activateBatch } from "../services/batches.js";
+import { ensureLocalFilePath } from "../storage/file-cache.js";
 
 type ProductLineRecord = {
   id: number;
@@ -302,12 +304,7 @@ export async function batchesRoutes(app: FastifyInstance) {
       return { error: "Batch ou arquivo nao encontrado" };
     }
 
-    const parsed = await parseWithFallback(
-      batch.fileAsset.id,
-      batch.fileAsset.filePath,
-      batch.fileAsset.originalFilename,
-      batch.fileAsset.fileType
-    );
+    const parsed = await parseWithFallback(batch.fileAsset, coerceFileType(batch.fileAsset.fileType));
     const headers = parsed.headers;
     const sampleRows = parsed.rows.slice(0, 5);
     const mapping = applyImagePreviewFallback(
@@ -341,30 +338,25 @@ export async function batchesRoutes(app: FastifyInstance) {
   });
 }
 
-async function parseWithFallback(
-  fileAssetId: number,
-  filePath: string,
-  originalFilename: string,
-  fileType: string
-) {
+async function parseWithFallback(fileAsset: FileAsset, fileType: string) {
   try {
-    return await parseFile(filePath, coerceFileType(fileType));
+    return await parseFile(fileAsset.filePath, coerceFileType(fileType));
   } catch (error: any) {
     if (error?.code !== "ENOENT") {
       throw error;
     }
 
-    const fallbackPath = await findFallbackPath(originalFilename);
-    if (!fallbackPath) {
-      throw error;
+    const fallbackPath = await findFallbackPath(fileAsset.originalFilename);
+    if (fallbackPath) {
+      await prisma.fileAsset.update({
+        where: { id: fileAsset.id },
+        data: { filePath: fallbackPath }
+      });
+      return parseFile(fallbackPath, coerceFileType(fileType));
     }
 
-    await prisma.fileAsset.update({
-      where: { id: fileAssetId },
-      data: { filePath: fallbackPath }
-    });
-
-    return parseFile(fallbackPath, coerceFileType(fileType));
+    const localPath = await ensureLocalFilePath(fileAsset);
+    return parseFile(localPath, coerceFileType(fileType));
   }
 }
 

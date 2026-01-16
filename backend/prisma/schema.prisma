@@ -70,6 +70,8 @@ model FileAsset {
   fileType         String
   fileSize         Int
   hash             String       @unique
+  storagePath      String?
+  storageUrl       String?
   uploadedAt       DateTime     @default(now())
   batches          ImportBatch[]
 }

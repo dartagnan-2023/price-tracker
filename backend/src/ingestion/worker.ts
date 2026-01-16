@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { BatchStatus, CorrectionStatus, FileType } from "../constants.js";
 import { prisma } from "../db.js";
+import type { FileAsset } from "@prisma/client";
 import { FAILED_DIR, PENDING_REVIEW_DIR, PROCESSED_DIR } from "../config.js";
 import {
   detectCompetenceFromText,
@@ -17,6 +18,8 @@ import { findBestMatch } from "./partnumber.js";
 import { PARTNUMBER_AUTO_THRESHOLD, PARTNUMBER_REVIEW_THRESHOLD } from "../config.js";
 import { validatePartNumber, validateUnitPriceCents } from "./validator.js";
 import type { ParsedRow } from "./parsers/types.js";
+import { uploadFileToSupabase, isSupabaseConfigured } from "../storage/supabase.js";
+import { ensureLocalFilePath } from "../storage/file-cache.js";
 
 export type ProcessResult = {
   status: "completed" | "pending_review" | "failed" | "duplicate";
@@ -69,6 +72,8 @@ export async function processFile(filePath: string, options: ProcessOptions = {}
       }
     }));
 
+  await ensureSupabaseStorage(fileAsset, filePath, fileHash);
+
   return parseAndPersist({
     filePath,
     fileAssetId: fileAsset.id,
@@ -87,12 +92,15 @@ export async function reprocessBatch(batchId: number, options: ProcessOptions): 
     return { status: "failed", reason: "Batch ou arquivo nao encontrado" };
   }
 
+  const localPath = await ensureLocalFilePath(batch.fileAsset);
+
   return parseAndPersist({
-    filePath: batch.fileAsset.filePath,
+    filePath: localPath,
     fileAssetId: batch.fileAsset.id,
     fileType: coerceFileType(batch.fileAsset.fileType),
     options,
-    existingBatchId: batch.id
+    existingBatchId: batch.id,
+    filenameOverride: batch.fileAsset.originalFilename
   });
 }
 
@@ -102,6 +110,7 @@ type ParsePersistInput = {
   fileType: FileType;
   options: ProcessOptions;
   existingBatchId?: number;
+  filenameOverride?: string;
 };
 
 async function parseAndPersist({
@@ -109,11 +118,12 @@ async function parseAndPersist({
   fileAssetId,
   fileType,
   options,
-  existingBatchId
+  existingBatchId,
+  filenameOverride
 }: ParsePersistInput): Promise<ProcessResult> {
+  const fileName = filenameOverride ?? path.basename(filePath);
   const parsed = await parseFile(filePath, fileType);
   const headerText = parsed.headers.join(" ");
-  const fileName = path.basename(filePath);
 
   const competenceText = parsed.rawLines && parsed.headerIndex !== undefined
     ? parsed.rawLines.slice(0, parsed.headerIndex).join(" ")
@@ -733,6 +743,31 @@ async function fileExists(filePath: string) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function ensureSupabaseStorage(fileAsset: FileAsset, localPath: string, fileHash: string) {
+  if (!isSupabaseConfigured() || fileAsset.storagePath) {
+    return;
+  }
+
+  const dateFolder = new Date().toISOString().split("T")[0];
+  const fileName = encodeURIComponent(path.basename(localPath));
+  const storageKey = path.posix.join("imports", dateFolder, `${fileHash}-${fileName}`);
+
+  try {
+    const uploaded = await uploadFileToSupabase(localPath, storageKey);
+    if (uploaded) {
+      await prisma.fileAsset.update({
+        where: { id: fileAsset.id },
+        data: {
+          storagePath: uploaded.path,
+          storageUrl: uploaded.url
+        }
+      });
+    }
+  } catch (error) {
+    console.warn("[storage] erro ao fazer upload para Supabase:", (error as Error).message ?? error);
   }
 }
 

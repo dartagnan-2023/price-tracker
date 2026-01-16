@@ -1,8 +1,9 @@
+import "@fastify/jwt";
 import fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
-import { fastifyStatic } from "@fastify/static";
-import { fastifyJwt } from "@fastify/jwt";
+import fastifyStatic from "@fastify/static";
+import fastifyJwt from "@fastify/jwt";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyReply, FastifyRequest } from "fastify";

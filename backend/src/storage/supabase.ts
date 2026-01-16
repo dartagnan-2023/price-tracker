@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_BUCKET, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL } from "../config.js";
 
@@ -19,7 +20,13 @@ export async function uploadFileToSupabase(localPath: string, destination: strin
   }
   const bucket = supabaseClient.storage.from(SUPABASE_BUCKET);
   const buffer = await fs.readFile(localPath);
-  const { error } = await bucket.upload(destination, buffer, { upsert: true });
+  const stream = Readable.from(buffer) as NodeJS.ReadableStream;
+  // @ts-ignore supabase-js typings não aceitam Node streams padrão
+  const { error } = await bucket.upload(destination, stream, {
+    upsert: true,
+    cacheControl: "max-age=3600",
+    contentType: "application/octet-stream"
+  });
   if (error) {
     throw error;
   }
@@ -38,6 +45,7 @@ export async function downloadFileFromSupabase(storagePath: string, targetPath: 
   }
   const buffer = Buffer.from(await data.arrayBuffer());
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  // @ts-ignore Node Buffer deve funcionar aqui
   await fs.writeFile(targetPath, buffer);
   return targetPath;
 }

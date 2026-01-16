@@ -1,3 +1,4 @@
+import "dotenv/config";
 import fs from "node:fs/promises";
 import { buildApp } from "./app.js";
 import { DATA_DIR, FAILED_DIR, INBOX_DIR, PENDING_REVIEW_DIR, PROCESSED_DIR } from "./config.js";

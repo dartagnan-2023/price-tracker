@@ -1,6 +1,5 @@
 import { FastifyInstance } from "fastify";
 import { prisma } from "../db.js";
-import type { ImportBatch, Month } from "@prisma/client";
 
 export async function monthsRoutes(app: FastifyInstance) {
   app.get("/months", async () => {
@@ -13,7 +12,7 @@ export async function monthsRoutes(app: FastifyInstance) {
       }
     });
 
-    return months.map((month: Month & { batches: ImportBatch[] }) => {
+    return months.map((month) => {
       const primaryBatch = month.batches[0] ?? null;
       return {
         id: month.id,
@@ -21,7 +20,7 @@ export async function monthsRoutes(app: FastifyInstance) {
         month: month.month,
         label: month.label,
         fullDate: primaryBatch?.fullDate ?? null,
-        batches: month.batches.map((batch: ImportBatch) => ({
+        batches: month.batches.map((batch) => ({
           id: batch.id,
           status: batch.status,
           isActive: batch.isActive,

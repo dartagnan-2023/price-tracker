@@ -1,6 +1,5 @@
 import { BatchStatus } from "../constants.js";
 import { prisma } from "../db.js";
-import type { Prisma } from "@prisma/client";
 
 export type ActivationResult = {
   monthId: number;
@@ -21,7 +20,7 @@ export async function activateBatch(batchId: number): Promise<ActivationResult> 
     throw new Error("not_completed");
   }
 
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  await prisma.$transaction(async (tx) => {
     await tx.importBatch.updateMany({
       where: { monthId: batch.monthId },
       data: { isActive: false }

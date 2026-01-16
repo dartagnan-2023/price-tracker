@@ -1,6 +1,5 @@
 import { FastifyInstance } from "fastify";
 import { prisma } from "../db.js";
-import type { MappingProfile } from "@prisma/client";
 
 export async function mappingProfilesRoutes(app: FastifyInstance) {
   app.get("/mapping-profiles", async () => {
@@ -8,7 +7,7 @@ export async function mappingProfilesRoutes(app: FastifyInstance) {
       orderBy: { createdAt: "desc" }
     });
 
-    return profiles.map((profile: MappingProfile) => ({
+    return profiles.map((profile) => ({
       id: profile.id,
       name: profile.name,
       mappingJson: profile.mappingJson

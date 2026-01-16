@@ -13,7 +13,19 @@ import { parseFile } from "../ingestion/file.js";
 import { detectHeaderMapping, findDescriptionHeader, normalizeHeaderValue } from "../ingestion/mapper.js";
 import { reprocessBatch } from "../ingestion/worker.js";
 import { activateBatch } from "../services/batches.js";
-import type { FileAsset, ImportBatch, Month, ProductLine } from "@prisma/client";
+
+type ProductLineRecord = {
+  id: number;
+  partNumber: string;
+  unitPriceCents: number;
+  rawPartNumber: string | null;
+  correctionStatus: string;
+  suggestedPartNumber: string | null;
+  correctionConfidence: number | null;
+  resolvedAt: Date | null;
+  resolvedBy: string | null;
+  resolutionNote: string | null;
+};
 
 export async function batchesRoutes(app: FastifyInstance) {
   app.get("/batches", async () => {
@@ -22,7 +34,7 @@ export async function batchesRoutes(app: FastifyInstance) {
       include: { month: true, fileAsset: true }
     });
 
-    return batches.map((batch: ImportBatch & { month: Month | null; fileAsset: FileAsset | null }) => ({
+    return batches.map((batch) => ({
       id: batch.id,
       status: batch.status,
       isActive: batch.isActive,
@@ -91,7 +103,7 @@ export async function batchesRoutes(app: FastifyInstance) {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 50));
 
-    const [lines, total, duplicates] = await Promise.all([
+    const [lines, total, duplicates] = (await Promise.all([
       prisma.productLine.findMany({
         where: { importBatchId: id },
         orderBy: { partNumber: "asc" },
@@ -111,10 +123,10 @@ export async function batchesRoutes(app: FastifyInstance) {
           }
         }
       })
-    ]);
+    ])) as [ProductLineRecord[], number, Array<{ partNumber: string; _count: { partNumber: number } }>];
 
     const duplicateMap = new Map(
-      duplicates.map((row) => [row.partNumber, row._count.partNumber])
+      duplicates.map((row: { partNumber: string; _count: { partNumber: number } }) => [row.partNumber, row._count.partNumber])
     );
 
     if (!lines.length && total === 0) {
@@ -132,7 +144,7 @@ export async function batchesRoutes(app: FastifyInstance) {
       page,
       pageSize,
       total,
-      lines: lines.map((line: ProductLine) => ({
+      lines: lines.map((line: ProductLineRecord) => ({
         id: line.id,
         partNumber: line.partNumber,
         unitPrice: Number((line.unitPriceCents / 100).toFixed(2)),

@@ -1,6 +1,10 @@
 import fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { FastifyReply } from "fastify";
 import { monthsRoutes } from "./routes/months.js";
 import { batchesRoutes } from "./routes/batches.js";
 import { compareRoutes } from "./routes/compare.js";
@@ -24,6 +28,23 @@ export function buildApp() {
   app.register(ingestRoutes, { prefix: "/api" });
   app.register(linesRoutes, { prefix: "/api" });
   app.register(mappingProfilesRoutes, { prefix: "/api" });
+
+  const frontendDist = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../frontend/dist");
+  const serveFrontend = process.env.NODE_ENV !== "development";
+  if (serveFrontend) {
+    app.register(fastifyStatic, {
+      root: frontendDist,
+      wildcard: true
+    });
+
+    app.setNotFoundHandler((request, reply) => {
+      if (request.raw.url?.startsWith("/api") || request.raw.url?.startsWith("/ingest")) {
+        reply.callNotFound();
+        return;
+      }
+      (reply as FastifyReply & { sendFile: (filename: string) => FastifyReply }).sendFile("index.html");
+    });
+  }
 
   return app;
 }

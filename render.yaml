@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: price-tracker-api
+    name: price-tracker
     env: node
     plan: free
     buildCommand: npm run build
@@ -10,9 +10,3 @@ services:
         value: "production"
       - key: DATABASE_URL
         value: "file:./data/price_tracker.db"
-  - type: static
-    name: price-tracker-frontend
-    env: static
-    plan: free
-    buildCommand: npm install --workspace=frontend && npm --workspace=frontend run build
-    staticPublishPath: frontend/dist

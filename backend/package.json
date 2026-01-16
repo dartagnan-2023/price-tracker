@@ -12,6 +12,7 @@
   "dependencies": {
     "@fastify/cors": "^8.4.2",
     "@fastify/multipart": "^8.0.0",
+    "@fastify/static": "^9.0.0",
     "@prisma/client": "^5.8.0",
     "chokidar": "^3.5.3",
     "csv-parse": "^5.5.0",

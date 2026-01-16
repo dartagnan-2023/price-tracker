@@ -13,21 +13,25 @@ export async function monthsRoutes(app: FastifyInstance) {
       }
     });
 
-    return months.map((month: Month & { batches: ImportBatch[] }) => ({
-      id: month.id,
-      year: month.year,
-      month: month.month,
-      label: month.label,
-      batches: month.batches.map((batch: ImportBatch) => ({
-        id: batch.id,
-        status: batch.status,
-        isActive: batch.isActive,
-        totalLines: batch.totalLines,
-        validLines: batch.validLines,
-        importedAt: batch.importedAt,
-        fullDate: batch.fullDate
-      }))
-    }));
+    return months.map((month: Month & { batches: ImportBatch[] }) => {
+      const primaryBatch = month.batches[0] ?? null;
+      return {
+        id: month.id,
+        year: month.year,
+        month: month.month,
+        label: month.label,
+        fullDate: primaryBatch?.fullDate ?? null,
+        batches: month.batches.map((batch: ImportBatch) => ({
+          id: batch.id,
+          status: batch.status,
+          isActive: batch.isActive,
+          totalLines: batch.totalLines,
+          validLines: batch.validLines,
+          importedAt: batch.importedAt,
+          fullDate: batch.fullDate
+        }))
+      };
+    });
   });
 
   app.delete("/months/:id", async (request, reply) => {

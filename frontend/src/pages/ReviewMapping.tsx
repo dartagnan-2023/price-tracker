@@ -28,6 +28,7 @@ export function ReviewMapping() {
 
   const [year, setYear] = useState<number | "">("");
   const [month, setMonth] = useState<number | "">("");
+  const [day, setDay] = useState<number | "">("");
   const [partNumberHeader, setPartNumberHeader] = useState("");
   const [unitPriceHeader, setUnitPriceHeader] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -46,10 +47,40 @@ export function ReviewMapping() {
       setUnitPriceHeader(suggested.unitPrice);
     }
 
-    if (batch.month) {
-      const [yearPart, monthPart] = batch.month.label.split("-");
-      setYear(Number(yearPart));
-      setMonth(Number(monthPart));
+    const parseFullDateString = (value?: string) => {
+      if (!value) {
+        return null;
+      }
+      const parts = value.split("-");
+      if (parts.length !== 3) {
+        return null;
+      }
+      const [yearPart, monthPart, dayPart] = parts;
+      const parsedYear = Number(yearPart);
+      const parsedMonth = Number(monthPart);
+      const parsedDay = Number(dayPart);
+      if (
+        Number.isFinite(parsedYear)
+        && Number.isFinite(parsedMonth)
+        && Number.isFinite(parsedDay)
+      ) {
+        return { year: parsedYear, month: parsedMonth, day: parsedDay };
+      }
+      return null;
+    };
+
+    const applyFullDate = (value?: string) => {
+      const parsed = parseFullDateString(value);
+      if (!parsed) {
+        return false;
+      }
+      setYear(parsed.year);
+      setMonth(parsed.month);
+      setDay(parsed.day);
+      return true;
+    };
+
+    if (applyFullDate(batch.fullDate ?? preview.fullDate)) {
       return;
     }
 
@@ -64,7 +95,8 @@ export function ReviewMapping() {
     || !partNumberHeader
     || !unitPriceHeader
     || typeof year !== "number"
-    || typeof month !== "number";
+    || typeof month !== "number"
+    || typeof day !== "number";
 
   const handleConfirm = async () => {
     if (!batch) {
@@ -75,8 +107,9 @@ export function ReviewMapping() {
     }
     const yearValue = typeof year === "number" ? year : null;
     const monthValue = typeof month === "number" ? month : null;
+    const dayValue = typeof day === "number" ? day : null;
 
-    if (!yearValue || !monthValue) {
+    if (!yearValue || !monthValue || !dayValue) {
       return;
     }
 
@@ -86,6 +119,7 @@ export function ReviewMapping() {
       await api.post(`/batches/${batch.id}/review`, {
         year: yearValue,
         month: monthValue,
+        day: dayValue,
         mapping: {
           partNumber: partNumberHeader,
           unitPrice: unitPriceHeader
@@ -149,6 +183,16 @@ export function ReviewMapping() {
                   </option>
                 ))}
               </select>
+            </label>
+            <label>
+              Dia
+              <input
+                type="number"
+                min={1}
+                max={31}
+                value={day}
+                onChange={(event) => setDay(Number(event.target.value) || "")}
+              />
             </label>
           </div>
         )}

@@ -7,7 +7,8 @@ import { FAILED_DIR, PENDING_REVIEW_DIR, PROCESSED_DIR } from "../config.js";
 import {
   detectCompetenceFromText,
   detectFullDateFromText,
-  formatFullDate
+  formatFullDate,
+  type FullDate
 } from "./detector.js";
 import { detectHeaderMapping, findDescriptionHeader, normalizeHeaderValue } from "./mapper.js";
 import { detectFileType, parseFile } from "./file.js";
@@ -31,6 +32,7 @@ export type MappingOverride = {
 export type MonthOverride = {
   year: number;
   month: number;
+  day?: number;
 };
 
 export type ProcessOptions = {
@@ -160,7 +162,14 @@ async function parseAndPersist({
   const rawContent = parsed.rawText ?? parsed.rawLines?.join(" ") ?? "";
   const dateFromContent = detectFullDateFromText(rawContent);
   const dateFromFilename = detectFullDateFromText(fileName);
-  const fullDateValue = dateFromContent ?? dateFromFilename;
+  const overrideFullDate = options.monthOverride && typeof options.monthOverride.day === "number"
+    ? {
+        year: options.monthOverride.year,
+        month: options.monthOverride.month,
+        day: options.monthOverride.day
+      }
+    : null;
+  const fullDateValue = overrideFullDate ?? dateFromContent ?? dateFromFilename;
   const formattedFullDate = fullDateValue ? formatFullDate(fullDateValue) : null;
 
   const monthRecord = detectedCompetence

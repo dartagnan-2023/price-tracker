@@ -176,6 +176,7 @@ export async function batchesRoutes(app: FastifyInstance) {
       monthId?: number;
       year?: number;
       month?: number;
+      day?: number;
       mapping?: {
         partNumber: string;
         unitPrice: string;
@@ -193,6 +194,12 @@ export async function batchesRoutes(app: FastifyInstance) {
       return { error: "Mes invalido" };
     }
 
+    const dayValue = typeof body.day === "number" ? body.day : null;
+    if (dayValue === null || dayValue < 1 || dayValue > 31) {
+      reply.code(400);
+      return { error: "Dia invalido" };
+    }
+
     if (!body.mapping?.partNumber || !body.mapping?.unitPrice) {
       reply.code(400);
       return { error: "Mapping invalido" };
@@ -201,7 +208,8 @@ export async function batchesRoutes(app: FastifyInstance) {
     const result = await reprocessBatch(id, {
       monthOverride: {
         year: monthOverride.year,
-        month: monthOverride.month
+        month: monthOverride.month,
+        day: dayValue
       },
       mappingOverride: body.mapping
     });

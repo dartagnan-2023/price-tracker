@@ -34,6 +34,8 @@ npm run dev
 
 Backend roda em `http://localhost:3100` e frontend em `http://localhost:5174`.
 
+Para o frontend se comunicar com o backend, o Vite lê a variável `VITE_API_BASE_URL`. Em desenvolvimento usamos `frontend/.env.development` com `VITE_API_BASE_URL=http://localhost:3100/api`, mas em produção você deve apontar essa variável para a URL pública do backend (`https://<seu-servico>.onrender.com/api`, por exemplo). Se não estiver definida, a aplicação usa o caminho relativo `/api`, o que funciona quando front e back são servidos pelo mesmo domínio (como no Render).
+
 ## Workflow de ingestão
 
 1. Coloque CSV/XLSX/PNG/JPG em `inbox/` (ou use a interface para selecionar o arquivo e enviar).

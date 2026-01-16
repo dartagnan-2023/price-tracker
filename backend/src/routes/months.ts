@@ -24,7 +24,8 @@ export async function monthsRoutes(app: FastifyInstance) {
         isActive: batch.isActive,
         totalLines: batch.totalLines,
         validLines: batch.validLines,
-        importedAt: batch.importedAt
+        importedAt: batch.importedAt,
+        fullDate: batch.fullDate
       }))
     }));
   });

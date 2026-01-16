@@ -120,11 +120,13 @@ export function Dashboard() {
           {months.map((month: any) => {
             const activeBatch = month.batches.find((batch: any) => batch.isActive);
             const primaryBatch = activeBatch ?? month.batches[0];
+            const primaryFullDate = primaryBatch?.fullDate ?? "-";
 
             return (
               <div key={month.id} className="month-card">
                 <div className="month-card__title">{month.label}</div>
                 <div className="month-card__meta">Batches: {month.batches.length}</div>
+                <div className="month-card__meta">Date: {primaryFullDate}</div>
                 <div className="month-card__actions">
                   {primaryBatch && (
                     <Link to={`/batches/${primaryBatch.id}`}>

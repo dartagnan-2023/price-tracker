@@ -1,16 +1,19 @@
+import "@fastify/jwt";
 import fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import fastifyJwt from "@fastify/jwt";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { FastifyReply } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { monthsRoutes } from "./routes/months.js";
 import { batchesRoutes } from "./routes/batches.js";
 import { compareRoutes } from "./routes/compare.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { linesRoutes } from "./routes/lines.js";
 import { mappingProfilesRoutes } from "./routes/mapping-profiles.js";
+import { AUTH_ALLOW_UNAUTH, AUTH_PASSWORD, AUTH_SECRET, AUTH_USER } from "./config.js";
 
 export function buildApp() {
   const app = fastify({ logger: true });
@@ -19,6 +22,49 @@ export function buildApp() {
   app.register(multipart, {
     limits: {
       fileSize: 50 * 1024 * 1024
+    }
+  });
+
+  app.register(fastifyJwt, { secret: AUTH_SECRET });
+
+  app.post("/api/auth", {
+    schema: {
+      body: {
+        type: "object",
+        properties: {
+          username: { type: "string" },
+          password: { type: "string" }
+        },
+        required: ["username", "password"]
+      }
+    }
+  }, async (request, reply) => {
+    const body = request.body as { username?: string; password?: string };
+    if (body.username !== AUTH_USER || body.password !== AUTH_PASSWORD) {
+      reply.code(401);
+      return { error: "Credenciais invalidas" };
+    }
+    const token = await (reply as unknown as { jwtSign: (payload: unknown) => Promise<string> }).jwtSign({
+      username: body.username
+    });
+    return { token };
+  });
+
+  app.addHook("onRequest", async (request, reply) => {
+    if (AUTH_ALLOW_UNAUTH) {
+      return;
+    }
+    const url = request.raw.url ?? "";
+    const pathName = url.split("?")[0];
+    if (pathName === "/api/auth") {
+      return;
+    }
+    if (pathName.startsWith("/api") || pathName.startsWith("/ingest")) {
+      try {
+        await (request as FastifyRequest & { jwtVerify: () => Promise<void> }).jwtVerify();
+      } catch {
+        reply.code(401).send({ error: "Unauthorized" });
+      }
     }
   });
 

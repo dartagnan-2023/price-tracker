@@ -34,6 +34,17 @@ npm run dev
 
 Backend roda em `http://localhost:3100` e frontend em `http://localhost:5174`.
 
+O frontend lê `VITE_API_BASE_URL` para decidir para onde mandar as requisições; por padrão ele usa `/api`, então a versão hospedada junto ao backend funciona sem ajustes, mas em ambientes separados (Render, etc.) defina `VITE_API_BASE_URL=https://<seu-servico>.onrender.com/api`. Em desenvolvimento há um `.env.development` no `frontend/` com `VITE_API_BASE_URL=http://localhost:3100/api`.
+
+### Variáveis de ambiente
+
+- `DATABASE_URL`: string de conexão usada pelo Prisma (encontre-a no `.env` e nos secrets do Render).  
+- `AUTH_USER`, `AUTH_PASSWORD`, `AUTH_SECRET`: credenciais do login.  
+- `AUTH_ALLOW_UNAUTH=true`: permite consultar `/api/*` sem token (útil para testes rápidos ou quando o dashboard precisar ficar aberto sem autenticação).  
+- `VITE_API_BASE_URL`: URL base para o frontend (omitido se o domínio já serve `/api`).
+
+No deploy, o backend roda `npm run start`, que agora chama `prisma migrate deploy` antes de subir o servidor; isso garante que colunas como `fullDate` existam no banco antes que o aplicativo seja usado.
+
 ## Workflow de ingestão
 
 1. Coloque CSV/XLSX/PNG/JPG em `inbox/` (ou use a interface para selecionar o arquivo e enviar).

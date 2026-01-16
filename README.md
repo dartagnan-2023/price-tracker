@@ -38,11 +38,13 @@ O frontend lê `VITE_API_BASE_URL` para decidir para onde mandar as requisiçõe
 
 ### Variáveis de ambiente
 
-- `DATABASE_URL`: string de conexão usada pelo Prisma (encontre-a no `.env` e nos secrets do Render).
-- `npm run start` (backend) executa `backend/scripts/start.js`, que define `DATABASE_URL=file:../data/price_tracker.db` se a variável estiver faltando antes de rodar `npx prisma migrate deploy` e iniciar o servidor; para usar Supabase/Postgres basta apontar `DATABASE_URL=postgresql://...`.
+- `DATABASE_URL`: string de conexão usada pelo Prisma (encontre-a no `.env` e nos secrets do Render).  
+- `npm run start` (backend) executa `backend/scripts/start.js`, que define `DATABASE_URL=file:../data/price_tracker.db` se a variável estiver faltando antes de rodar `npx prisma migrate deploy` e iniciar o servidor; para usar Supabase/Postgres basta apontar `DATABASE_URL=postgresql://...`.  
 - `AUTH_USER`, `AUTH_PASSWORD`, `AUTH_SECRET`: credenciais do login.
 - `AUTH_ALLOW_UNAUTH=true`: permite consultar `/api/*` sem token (útil para testes rápidos ou quando o dashboard precisar ficar aberto sem autenticação).
 - `VITE_API_BASE_URL`: URL base para o frontend (omitido se o domínio já serve `/api`).
+
+> Para rodar localmente, instale dependências com `npm --prefix backend install` (incluindo `dotenv`) e certifique-se de ter o `.env` com `AUTH_USER=leandro` e `AUTH_PASSWORD=123456` antes de usar `npm run dev`.
 
 
 -- `DATABASE_URL`: string de conexão usada pelo Prisma (encontre-a no `.env` e nos secrets do Render). Quando o valor é omitido, o backend usa SQLite local (`file:../data/price_tracker.db`), mas você pode definir uma URL do Supabase/Postgres para subir em um banco gerenciado.  

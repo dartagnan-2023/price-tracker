@@ -3,6 +3,40 @@ import { prisma } from "../db.js";
 import { resolvePartNumber, updateLine } from "../services/lines.js";
 
 export async function linesRoutes(app: FastifyInstance) {
+  app.get("/lines/history", async (request, reply) => {
+    const query = request.query as { partNumber?: string };
+    const partNumber = query.partNumber?.trim();
+    if (!partNumber) {
+      reply.code(400);
+      return { error: "partNumber obrigatorio" };
+    }
+
+    const lines = await prisma.productLine.findMany({
+      where: { partNumber },
+      include: {
+        importBatch: {
+          include: { month: true }
+        }
+      },
+      orderBy: [
+        { importBatch: { fullDate: "desc" } },
+        { importBatch: { importedAt: "desc" } }
+      ]
+    });
+
+    return {
+      history: lines.map((line) => ({
+        batchId: line.importBatchId,
+        partNumber: line.partNumber,
+        fullDate: line.importBatch?.fullDate ?? null,
+        monthLabel: line.importBatch?.month?.label ?? null,
+        unitPrice: Number((line.unitPriceCents / 100).toFixed(2)),
+        status: line.importBatch?.status ?? null,
+        importedAt: line.importBatch?.importedAt ?? null
+      }))
+    };
+  });
+
   app.patch("/lines/:id/resolve-partnumber", async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
     const body = request.body as {

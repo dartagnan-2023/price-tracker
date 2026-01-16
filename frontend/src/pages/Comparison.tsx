@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useComparison } from "../hooks/useComparison";
 import { useMonths } from "../hooks/useMonths";
+import { usePartNumberHistory } from "../hooks/usePartNumberHistory";
 import * as XLSX from "xlsx";
 
 const filters = [
@@ -23,8 +24,10 @@ export function Comparison() {
   const [monthA, setMonthA] = useState<number | null>(initialA);
   const [monthB, setMonthB] = useState<number | null>(initialB);
   const [filter, setFilter] = useState("all");
+  const [partNumberFilter, setPartNumberFilter] = useState("");
 
   const comparison = useComparison(monthA, monthB, filter);
+  const historyQuery = usePartNumberHistory(partNumberFilter.trim() || null);
 
   const handleExport = (format: "csv" | "xlsx") => {
     if (!comparison.data) {
@@ -124,6 +127,51 @@ export function Comparison() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="panel">
+        <h2>Histórico por partnumber</h2>
+        <div className="compare-controls">
+          <input
+            type="text"
+            value={partNumberFilter}
+            onChange={(event) => setPartNumberFilter(event.target.value)}
+            placeholder="Buscar partnumber"
+          />
+        </div>
+        {historyQuery.isLoading && <p>Carregando histórico...</p>}
+        {!historyQuery.isLoading && partNumberFilter.trim() && historyQuery.data?.history?.length === 0 && (
+          <p>Nenhum registro encontrado para esse partnumber.</p>
+        )}
+        {!historyQuery.isLoading && !partNumberFilter.trim() && (
+          <p>Digite um partnumber para ver o histórico.</p>
+        )}
+        {!historyQuery.isLoading && historyQuery.data?.history?.length ? (
+          <div className="table-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Data completa</th>
+                  <th>Mês</th>
+                  <th>Batch</th>
+                  <th>Valor unitário</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyQuery.data.history.map((entry: any) => (
+                  <tr key={`${entry.batchId}-${entry.fullDate ?? entry.importedAt}`}>
+                    <td>{entry.fullDate ?? entry.monthLabel ?? (entry.importedAt ? new Date(entry.importedAt).toISOString().slice(0, 10) : "-")}</td>
+                    <td>{entry.monthLabel ?? "-"}</td>
+                    <td>{entry.batchId}</td>
+                    <td>{entry.unitPrice?.toFixed(2) ?? "-"}</td>
+                    <td>{entry.status ?? "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </section>
 
       {comparison.isLoading && <p>Carregando comparacao...</p>}

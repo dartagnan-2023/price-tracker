@@ -27,12 +27,42 @@ type ProductLineRecord = {
   resolutionNote: string | null;
 };
 
+type BatchDTO = {
+  id: number;
+  status: string;
+  isActive: boolean;
+  totalLines: number;
+  validLines: number;
+  errorLog: string | null;
+  pendingReason: string | null;
+  ocrConfidenceAvg: number | null;
+  mappingConfidence: number | null;
+  competenceSource: string | null;
+  importedAt: Date;
+  fullDate: string | null;
+  month: { id: number; label: string } | null;
+  fileAsset: { id: number; originalFilename: string; fileType: string } | null;
+};
+
+interface BatchLineSummary {
+  id: number;
+  partNumber: string;
+  unitPrice: number;
+  rawPartNumber: string | null;
+  correctionStatus: string;
+  suggestedPartNumber: string | null;
+  correctionConfidence: number | null;
+  resolvedAt: Date | null;
+  resolvedBy: string | null;
+  resolutionNote: string | null;
+}
+
 export async function batchesRoutes(app: FastifyInstance) {
   app.get("/batches", async () => {
     const batches = await prisma.importBatch.findMany({
       orderBy: { importedAt: "desc" },
       include: { month: true, fileAsset: true }
-    });
+    }) as BatchDTO[];
 
     return batches.map((batch) => ({
       id: batch.id,

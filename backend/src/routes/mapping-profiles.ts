@@ -5,7 +5,7 @@ export async function mappingProfilesRoutes(app: FastifyInstance) {
   app.get("/mapping-profiles", async () => {
     const profiles = await prisma.mappingProfile.findMany({
       orderBy: { createdAt: "desc" }
-    });
+    }) as Array<{ id: number; name: string; mappingJson: string }>;
 
     return profiles.map((profile) => ({
       id: profile.id,

@@ -3,6 +3,18 @@ import { prisma } from "../db.js";
 import { resolvePartNumber, updateLine } from "../services/lines.js";
 
 export async function linesRoutes(app: FastifyInstance) {
+  type LineHistoryEntry = {
+    importBatchId: number;
+    partNumber: string;
+    unitPriceCents: number;
+    importBatch: {
+      fullDate: string | null;
+      month: { label: string } | null;
+      status: string | null;
+      importedAt: Date | null;
+    } | null;
+  };
+
   app.get("/lines/history", async (request, reply) => {
     const query = request.query as { partNumber?: string };
     const partNumber = query.partNumber?.trim();
@@ -25,7 +37,7 @@ export async function linesRoutes(app: FastifyInstance) {
     });
 
     return {
-      history: lines.map((line) => ({
+      history: (lines as LineHistoryEntry[]).map((line) => ({
         batchId: line.importBatchId,
         partNumber: line.partNumber,
         fullDate: line.importBatch?.fullDate ?? null,

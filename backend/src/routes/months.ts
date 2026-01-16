@@ -1,6 +1,22 @@
 import { FastifyInstance } from "fastify";
 import { prisma } from "../db.js";
 
+type MonthWithBatchesDTO = {
+  id: number;
+  year: number;
+  month: number;
+  label: string;
+  batches: Array<{
+    id: number;
+    status: string;
+    isActive: boolean;
+    totalLines: number;
+    validLines: number;
+    importedAt: Date;
+    fullDate: string | null;
+  }>;
+};
+
 export async function monthsRoutes(app: FastifyInstance) {
   app.get("/months", async () => {
     const months = await prisma.month.findMany({
@@ -10,7 +26,7 @@ export async function monthsRoutes(app: FastifyInstance) {
           orderBy: { importedAt: "desc" }
         }
       }
-    });
+    }) as MonthWithBatchesDTO[];
 
     return months.map((month) => {
       const primaryBatch = month.batches[0] ?? null;

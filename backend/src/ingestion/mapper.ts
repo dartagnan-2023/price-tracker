@@ -116,12 +116,21 @@ export function findDescriptionHeader(headers: string[]): string | null {
   }));
 
   for (const header of normalizedHeaders) {
-    if (DESCRIPTION_KEYWORDS.some((keyword) => header.normalized.includes(keyword))) {
+    if (isDescriptionHeader(header.normalized)) {
       return header.raw;
     }
   }
 
   return null;
+}
+
+export function isDescriptionHeader(header: string) {
+  const normalized = normalizeHeaderValue(header);
+  return (
+    normalized.includes("description") ||
+    normalized.includes("descriptions") ||
+    normalized.includes("quantities")
+  );
 }
 
 function similarity(a: string, b: string): number {

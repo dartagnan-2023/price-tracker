@@ -1,13 +1,48 @@
 :root {
   color-scheme: light;
-  --bg: #f5f2ea;
-  --panel: #ffffff;
-  --panel-border: #e6dfd3;
-  --text: #1f2937;
-  --muted: #6b7280;
-  --accent: #0f766e;
-  --accent-strong: #115e59;
-  --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+
+  /* Primary Palette */
+  --brand-primary: #0f172a;
+  --brand-accent: #3b82f6;
+  --brand-accent-hover: #2563eb;
+
+  /* Backgrounds */
+  --bg-app: #f8fafc;
+  --bg-panel: #ffffff;
+  --bg-muted: #f1f5f9;
+
+  /* Borders & Dividers */
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  /* Text */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-on-accent: #ffffff;
+
+  /* Semantic */
+  --success: #10b981;
+  --success-light: #ecfdf5;
+  --error: #ef4444;
+  --error-light: #fef2f2;
+  --warning: #f59e0b;
+  --warning-light: #fffbeb;
+  --info: #3b82f6;
+  --info-light: #eff6ff;
+
+  /* Effects */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --transition-base: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * {
@@ -16,11 +51,29 @@
 
 body {
   margin: 0;
-  font-family: "Space Grotesk", "Segoe UI", sans-serif;
-  background: radial-gradient(circle at top left, #fdf7ed, #f5f2ea 45%, #efe7db 100%);
-  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  color: var(--brand-primary);
+  margin-top: 0;
 }
 
 a {
-  color: inherit;
+  color: var(--brand-accent);
+  text-decoration: none;
+  transition: var(--transition-base);
+}
+
+a:hover {
+  color: var(--brand-accent-hover);
 }

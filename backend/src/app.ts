@@ -44,7 +44,7 @@ export function buildApp() {
       reply.code(401);
       return { error: "Credenciais invalidas" };
     }
-    const token = await (reply as unknown as { jwtSign: (payload: unknown) => Promise<string> }).jwtSign({
+    const token = await (reply as any).jwtSign({
       username: body.username
     });
     return { token };
@@ -61,7 +61,7 @@ export function buildApp() {
     }
     if (pathName.startsWith("/api") || pathName.startsWith("/ingest")) {
       try {
-        await (request as FastifyRequest & { jwtVerify: () => Promise<void> }).jwtVerify();
+        await (request as any).jwtVerify();
       } catch {
         reply.code(401).send({ error: "Unauthorized" });
       }
@@ -88,7 +88,7 @@ export function buildApp() {
         reply.callNotFound();
         return;
       }
-      (reply as FastifyReply & { sendFile: (filename: string) => FastifyReply }).sendFile("index.html");
+      (reply as any).sendFile("index.html");
     });
   }
 

@@ -30,24 +30,16 @@ export function Comparison() {
   const historyQuery = usePartNumberHistory(partNumberFilter.trim() || null);
 
   const handleExport = (format: "csv" | "xlsx") => {
-    if (!comparison.data) {
-      return;
-    }
+    if (!comparison.data) return;
 
-    const rows = comparison.data.comparison.map((row: any) => {
-      const deltaCents = row.unitPriceA !== null && row.unitPriceB !== null
-        ? Math.round((row.unitPriceB - row.unitPriceA) * 100)
-        : null;
-
-      return {
-        partNumber: row.partNumber,
-        unitPriceA: row.unitPriceA,
-        unitPriceB: row.unitPriceB,
-        deltaCents,
-        deltaPercent: row.priceDiffPercent,
-        status: row.status
-      };
-    });
+    const rows = comparison.data.comparison.map((row: any) => ({
+      partNumber: row.partNumber,
+      unitPriceA: row.unitPriceA,
+      unitPriceB: row.unitPriceB,
+      delta: row.priceDiff,
+      deltaPercent: row.priceDiffPercent,
+      status: row.status
+    }));
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
@@ -67,17 +59,38 @@ export function Comparison() {
     setSearchParams(params);
   };
 
+  const formatCurrency = (value: number | null) => {
+    if (value === null) return "-";
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2
+    }).format(value);
+  };
+
+  const formatPercent = (value: number | null) => {
+    if (value === null) return "-";
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(2)}%`;
+  };
+
+  const getPriceChangeIndicator = (value: number | null) => {
+    if (value === null || value === 0) return null;
+    if (value > 0) return <span style={{ color: "var(--error)", marginLeft: "4px" }}>▲</span>;
+    return <span style={{ color: "var(--success)", marginLeft: "4px" }}>▼</span>;
+  };
+
   return (
     <div className="page">
       <header className="page__header">
-        <h1>Comparacao</h1>
-        <p>Analise variacoes de preco por partnumber.</p>
+        <h1>Comparação de Preços</h1>
+        <p>Analise variações de custo entre períodos.</p>
       </header>
 
-      <section className="panel">
+      <div className="panel">
         <div className="compare-controls">
           <label>
-            Mes A
+            Período A (Referência)
             <select
               value={monthA ?? ""}
               onChange={(event) => {
@@ -86,7 +99,7 @@ export function Comparison() {
                 updateQuery(value, monthB);
               }}
             >
-              <option value="">Selecione</option>
+              <option value="">Selecione um mês</option>
               {months.map((month: any) => (
                 <option key={month.id} value={month.id}>
                   {month.label}
@@ -95,7 +108,7 @@ export function Comparison() {
             </select>
           </label>
           <label>
-            Mes B
+            Período B (Comparação)
             <select
               value={monthB ?? ""}
               onChange={(event) => {
@@ -104,7 +117,7 @@ export function Comparison() {
                 updateQuery(monthA, value);
               }}
             >
-              <option value="">Selecione</option>
+              <option value="">Selecione um mês</option>
               {months.map((month: any) => (
                 <option key={month.id} value={month.id}>
                   {month.label}
@@ -113,9 +126,20 @@ export function Comparison() {
             </select>
           </label>
         </div>
-      </section>
+      </div>
 
-      <section className="panel">
+      <div className="panel">
+        <h2>Filtros e Busca</h2>
+        <div className="compare-controls" style={{ marginBottom: "20px" }}>
+          <input
+            type="text"
+            className="search-input"
+            value={partNumberFilter}
+            onChange={(event) => setPartNumberFilter(event.target.value)}
+            placeholder="Buscar partnumber..."
+            style={{ flex: 1, minWidth: "250px" }}
+          />
+        </div>
         <div className="filter-bar">
           {filters.map((option) => (
             <button
@@ -127,125 +151,143 @@ export function Comparison() {
             </button>
           ))}
         </div>
-      </section>
+      </div>
 
-      <section className="panel">
-        <h2>Histórico por partnumber</h2>
-        <div className="compare-controls">
-          <input
-            type="text"
-            value={partNumberFilter}
-            onChange={(event) => setPartNumberFilter(event.target.value)}
-            placeholder="Buscar partnumber"
-          />
-        </div>
-        {historyQuery.isLoading && <p>Carregando histórico...</p>}
+      {comparison.isLoading && <p className="muted">Carregando dados da comparação...</p>}
+
+      {comparison.data && (
+        <>
+          <div className="panel">
+            <h2>Resumo da Comparação</h2>
+            <div className="totals-grid">
+              <div className="total-item">
+                <label>SKUs em A</label>
+                <span>{comparison.data.totals_full_a.totalSkus}</span>
+              </div>
+              <div className="total-item">
+                <label>Preço Médio A</label>
+                <span>{formatCurrency(comparison.data.totals_full_a.avgUnitPrice)}</span>
+              </div>
+              <div className="total-item">
+                <label>SKUs em B</label>
+                <span>{comparison.data.totals_full_b.totalSkus}</span>
+              </div>
+              <div className="total-item">
+                <label>Preço Médio B</label>
+                <span>{formatCurrency(comparison.data.totals_full_b.avgUnitPrice)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <h2>Resultados</h2>
+              <div className="table-toolbar" style={{ margin: 0 }}>
+                <button className="button" onClick={() => handleExport("csv")}>Exportar CSV</button>
+                <button className="button button--ghost" onClick={() => handleExport("xlsx")}>Exportar XLSX</button>
+              </div>
+            </div>
+
+            <div className="table-scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Partnumber</th>
+                    <th>Preço A</th>
+                    <th>Preço B</th>
+                    <th>Variação ($)</th>
+                    <th>Variação (%)</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparison.data.comparison.map((row: any) => {
+                    const diff = row.priceDiff;
+                    const diffPercent = row.priceDiffPercent;
+
+                    return (
+                      <tr key={row.partNumber} className={`status-${row.status}`}>
+                        <td style={{ fontWeight: 600 }}>{row.partNumber}</td>
+                        <td>{formatCurrency(row.unitPriceA)}</td>
+                        <td>{formatCurrency(row.unitPriceB)}</td>
+                        <td>
+                          {diff !== null ? (
+                            <span style={{ color: diff > 0 ? "var(--error)" : diff < 0 ? "var(--success)" : "inherit" }}>
+                              {formatCurrency(diff)}
+                            </span>
+                          ) : "-"}
+                        </td>
+                        <td>
+                          {diffPercent !== null ? (
+                            <span style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              fontWeight: Math.abs(diffPercent) > 0 ? 600 : 400,
+                              color: diffPercent > 0 ? "var(--error)" : diffPercent < 0 ? "var(--success)" : "inherit"
+                            }}>
+                              {formatPercent(diffPercent)}
+                              {getPriceChangeIndicator(diffPercent)}
+                            </span>
+                          ) : "-"}
+                        </td>
+                        <td>
+                          <span className="chip" style={{ fontSize: "0.7rem", pointerEvents: "none" }}>
+                            {row.status.toUpperCase()}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="panel">
+        <h2>Histórico Detalhado</h2>
+        <p className="muted" style={{ marginBottom: "16px" }}>Consulte o histórico completo de um partnumber específico.</p>
+
+        {historyQuery.isLoading && <p className="muted">Carregando histórico...</p>}
         {!historyQuery.isLoading && partNumberFilter.trim() && historyQuery.data?.history?.length === 0 && (
-          <p>Nenhum registro encontrado para esse partnumber.</p>
+          <p className="muted">Nenhum registro encontrado para "{partNumberFilter}".</p>
         )}
         {!historyQuery.isLoading && !partNumberFilter.trim() && (
-          <p>Digite um partnumber para ver o histórico.</p>
+          <p className="muted">Digite um partnumber no campo de busca acima para ver o histórico.</p>
         )}
+
         {!historyQuery.isLoading && historyQuery.data?.history?.length ? (
           <div className="table-scroll">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Data completa</th>
+                  <th>Data</th>
                   <th>Mês</th>
-                  <th>Batch</th>
-                  <th>Valor unitário</th>
-                  <th>Status</th>
+                  <th>Batch ID</th>
+                  <th>Valor Unitário</th>
+                  <th>Status do Batch</th>
                 </tr>
               </thead>
               <tbody>
                 {historyQuery.data.history.map((entry: any) => (
                   <tr key={`${entry.batchId}-${entry.fullDate ?? entry.importedAt}`}>
-                    <td>{entry.fullDate ?? entry.monthLabel ?? (entry.importedAt ? new Date(entry.importedAt).toISOString().slice(0, 10) : "-")}</td>
+                    <td>{entry.fullDate ?? (entry.importedAt ? new Date(entry.importedAt).toLocaleDateString() : "-")}</td>
                     <td>{entry.monthLabel ?? "-"}</td>
-                    <td>{entry.batchId}</td>
-                    <td>{entry.unitPrice?.toFixed(2) ?? "-"}</td>
-                    <td>{entry.status ?? "-"}</td>
+                    <td><span className="muted">#{entry.batchId}</span></td>
+                    <td style={{ fontWeight: 600 }}>{formatCurrency(entry.unitPrice)}</td>
+                    <td>
+                      <span className="chip" style={{ fontSize: "0.7rem", pointerEvents: "none" }}>
+                        {entry.status}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : null}
-      </section>
-
-      {comparison.isLoading && <p>Carregando comparacao...</p>}
-      {comparison.data && (
-        <section className="panel">
-          <h2>Totais</h2>
-          <div className="totals-grid">
-            <div>
-              <strong>Filtrado A (SKUs):</strong> {comparison.data.totals_filtered_a.totalSkus}
-            </div>
-            <div>
-              <strong>Filtrado A (preco medio):</strong> {comparison.data.totals_filtered_a.avgUnitPrice}
-            </div>
-            <div>
-              <strong>Filtrado B (SKUs):</strong> {comparison.data.totals_filtered_b.totalSkus}
-            </div>
-            <div>
-              <strong>Filtrado B (preco medio):</strong> {comparison.data.totals_filtered_b.avgUnitPrice}
-            </div>
-            <div>
-              <strong>Total A (SKUs):</strong> {comparison.data.totals_full_a.totalSkus}
-            </div>
-            <div>
-              <strong>Total A (preco medio):</strong> {comparison.data.totals_full_a.avgUnitPrice}
-            </div>
-            <div>
-              <strong>Total B (SKUs):</strong> {comparison.data.totals_full_b.totalSkus}
-            </div>
-            <div>
-              <strong>Total B (preco medio):</strong> {comparison.data.totals_full_b.avgUnitPrice}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {comparison.data && (
-        <section className="panel">
-          <h2>Comparacao</h2>
-          <div className="table-toolbar">
-            <button className="button" onClick={() => handleExport("csv")}>Exportar CSV</button>
-            <button className="button button--ghost" onClick={() => handleExport("xlsx")}>Exportar XLSX</button>
-          </div>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Partnumber</th>
-                <th>Preco A</th>
-                <th>Preco B</th>
-                <th>Delta</th>
-                <th>Delta %</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {comparison.data.comparison.map((row: any) => (
-                <tr key={row.partNumber} className={`status-${row.status}`}>
-                  <td>{row.partNumber}</td>
-                  <td>{row.unitPriceA ?? "-"}</td>
-                  <td>{row.unitPriceB ?? "-"}</td>
-                  <td>{row.priceDiff ?? "-"}</td>
-                  <td>{row.priceDiffPercent ?? "-"}</td>
-                  <td>{row.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {!comparison.data && !comparison.isLoading && (
-        <section className="panel">
-          <p>Selecione dois meses para comparar.</p>
-        </section>
-      )}
+      </div>
     </div>
   );
 }

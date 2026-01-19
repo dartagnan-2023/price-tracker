@@ -7,7 +7,7 @@ export function normalizePartNumber(raw: string): string {
     .toString()
     .trim()
     .toUpperCase()
-    .replace(/\s+/g, "");
+    .replace(/[^A-Z0-9]/g, "");
 }
 
 export function parsePriceToCents(value: unknown): number | null {

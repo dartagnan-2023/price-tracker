@@ -1,25 +1,34 @@
-import crypto, { type BinaryLike } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { BatchStatus, CorrectionStatus, FileType } from "../constants.js";
+import { BatchStatus, FileType } from "../constants.js";
 import { prisma } from "../db.js";
-import type { FileAsset } from "@prisma/client";
-import { FAILED_DIR, PENDING_REVIEW_DIR, PROCESSED_DIR } from "../config.js";
 import {
   detectCompetenceFromText,
   detectFullDateFromText,
   formatFullDate,
-  type FullDate
 } from "./detector.js";
-import { detectHeaderMapping, findDescriptionHeader, normalizeHeaderValue } from "./mapper.js";
+import { detectHeaderMapping, isDescriptionHeader, findDescriptionHeader } from "./mapper.js";
 import { detectFileType, parseFile } from "./file.js";
 import { normalizePartNumber, parsePriceToCents } from "./normalizer.js";
-import { findBestMatch } from "./partnumber.js";
-import { PARTNUMBER_AUTO_THRESHOLD, PARTNUMBER_REVIEW_THRESHOLD } from "../config.js";
 import { validatePartNumber, validateUnitPriceCents } from "./validator.js";
 import type { ParsedRow } from "./parsers/types.js";
-import { uploadFileToSupabase, isSupabaseConfigured } from "../storage/supabase.js";
 import { ensureLocalFilePath } from "../storage/file-cache.js";
+import { IngestionError, IngestionErrorCodes } from "./errors.js";
+import { applyPartNumberCorrection, loadKnownPartNumbers } from "./correction-service.js";
+import {
+  getOrCreateMonth,
+  resolvePendingReason,
+  upsertBatch,
+} from "./batch-service.js";
+import {
+  coerceFileType,
+  hashFile,
+  hasFullDateInName,
+} from "./file-service.js";
+import {
+  ensureSupabaseStorage,
+  moveFileAndUpdateAsset,
+} from "./storage-service.js";
 
 export type ProcessResult = {
   status: "completed" | "pending_review" | "failed" | "duplicate";
@@ -45,41 +54,49 @@ export type ProcessOptions = {
 };
 
 export async function processFile(filePath: string, options: ProcessOptions = {}): Promise<ProcessResult> {
-  const fileType = detectFileType(filePath);
-  if (!fileType) {
-    return { status: "failed", reason: "Tipo de arquivo nao suportado" };
+  try {
+    const fileType = detectFileType(filePath);
+    if (!fileType) {
+      throw new IngestionError("Tipo de arquivo nao suportado", IngestionErrorCodes.UNSUPPORTED_FILE_TYPE);
+    }
+
+    const fileStats = await fs.stat(filePath);
+    const fileHash = await hashFile(filePath);
+
+    const existingFile = await prisma.fileAsset.findUnique({
+      where: { hash: fileHash }
+    });
+
+    if (existingFile && !options.forceReimport) {
+      return { status: "duplicate", reason: "Arquivo duplicado" };
+    }
+
+    const fileAsset = existingFile ??
+      (await prisma.fileAsset.create({
+        data: {
+          originalFilename: path.basename(filePath),
+          filePath,
+          fileType,
+          fileSize: fileStats.size,
+          hash: fileHash
+        }
+      }));
+
+    await ensureSupabaseStorage(fileAsset, filePath, fileHash);
+
+    return await parseAndPersist({
+      filePath,
+      fileAssetId: fileAsset.id,
+      fileType,
+      options
+    });
+  } catch (error) {
+    console.error("[worker] Erro ao processar arquivo:", error);
+    return {
+      status: "failed",
+      reason: error instanceof IngestionError ? error.message : "Erro interno no processamento"
+    };
   }
-
-  const fileStats = await fs.stat(filePath);
-  const fileHash = await hashFile(filePath);
-
-  const existingFile = await prisma.fileAsset.findUnique({
-    where: { hash: fileHash }
-  });
-
-  if (existingFile && !options.forceReimport) {
-    return { status: "duplicate", reason: "Arquivo duplicado" };
-  }
-
-  const fileAsset = existingFile ??
-    (await prisma.fileAsset.create({
-      data: {
-        originalFilename: path.basename(filePath),
-        filePath,
-        fileType,
-        fileSize: fileStats.size,
-        hash: fileHash
-      }
-    }));
-
-  await ensureSupabaseStorage(fileAsset, filePath, fileHash);
-
-  return parseAndPersist({
-    filePath,
-    fileAssetId: fileAsset.id,
-    fileType,
-    options
-  });
 }
 
 export async function reprocessBatch(batchId: number, options: ProcessOptions): Promise<ProcessResult> {
@@ -123,93 +140,29 @@ async function parseAndPersist({
 }: ParsePersistInput): Promise<ProcessResult> {
   const fileName = filenameOverride ?? path.basename(filePath);
   const parsed = await parseFile(filePath, fileType);
-  const headerText = parsed.headers.join(" ");
 
-  const competenceText = parsed.rawLines && parsed.headerIndex !== undefined
-    ? parsed.rawLines.slice(0, parsed.headerIndex).join(" ")
-    : headerText;
-  const headerCompetence = detectCompetenceFromText(competenceText);
-  const filenameCompetence = hasFullDateInName(fileName)
-    ? null
-    : detectCompetenceFromText(fileName);
-  const detectedCompetence = options.monthOverride ?? headerCompetence ?? filenameCompetence;
-  const competenceSource = options.monthOverride
-    ? "manual"
-    : headerCompetence
-      ? "header"
-      : filenameCompetence
-        ? "filename"
-        : null;
-
-  const manualReview = Boolean(options.monthOverride || options.mappingOverride);
-
-  const mapping = options.mappingOverride
-    ? {
-        partNumber: options.mappingOverride.partNumber,
-        unitPrice: options.mappingOverride.unitPrice,
-        confidence: { partNumber: 1, unitPrice: 1 }
-      }
-    : detectHeaderMapping(parsed.headers);
-
-  const adjustedMapping = shouldApplyImageFallback(fileType)
-    ? applyImageMappingFallback(mapping, parsed.headers, parsed.rows)
-    : mapping;
-
-  const mappingConfidence = Math.min(adjustedMapping.confidence.partNumber, adjustedMapping.confidence.unitPrice);
-  const mappingOk = Boolean(adjustedMapping.partNumber && adjustedMapping.unitPrice)
-    && adjustedMapping.confidence.partNumber >= 0.8
-    && adjustedMapping.confidence.unitPrice >= 0.8;
+  const { detectedCompetence, competenceSource } = resolveCompetence(parsed, fileName, options.monthOverride);
+  const { mapping, mappingOk, mappingConfidence } = resolveMapping(parsed, fileType, options.mappingOverride);
 
   const ocrConfidence = parsed.confidence ?? 0;
+  const manualReview = Boolean(options.monthOverride || options.mappingOverride);
   const ocrOk = manualReview ? true : ocrConfidence >= 70;
+
   const pendingReason = resolvePendingReason({
-    mapping: adjustedMapping,
+    mapping,
     mappingOk,
     detectedCompetence,
     ocrOk
   });
 
-  const rawContent = parsed.rawText ?? parsed.rawLines?.join(" ") ?? "";
-  const dateFromContent = detectFullDateFromText(rawContent);
-  const dateFromFilename = detectFullDateFromText(fileName);
-  const overrideFullDate = options.monthOverride && typeof options.monthOverride.day === "number"
-    ? {
-        year: options.monthOverride.year,
-        month: options.monthOverride.month,
-        day: options.monthOverride.day
-      }
-    : null;
-  const fullDateValue = overrideFullDate ?? dateFromContent ?? dateFromFilename;
-  const formattedFullDate = fullDateValue ? formatFullDate(fullDateValue) : null;
+  const formattedFullDate = resolveFullDate(parsed, fileName, options.monthOverride);
 
   const monthRecord = detectedCompetence
     ? await getOrCreateMonth(detectedCompetence.year, detectedCompetence.month)
     : null;
   const monthId = monthRecord?.id ?? null;
 
-  let targetBatchId = existingBatchId;
-  if (!targetBatchId && monthId) {
-    const existingBatch = await prisma.importBatch.findFirst({
-      where: { monthId },
-      orderBy: [
-        { isActive: "desc" },
-        { importedAt: "desc" }
-      ]
-    });
-    targetBatchId = existingBatch?.id;
-  }
-
-  const existingCounts = targetBatchId
-    ? await prisma.importBatch.findUnique({
-        where: { id: targetBatchId },
-        select: { totalLines: true, validLines: true }
-      })
-    : null;
-  const existingLineCount = targetBatchId
-    ? await prisma.productLine.count({ where: { importBatchId: targetBatchId } })
-    : 0;
-  const baseTotalLines = existingCounts?.totalLines ?? existingLineCount;
-  const baseValidLines = existingCounts?.validLines ?? existingLineCount;
+  let targetBatchId = existingBatchId ?? (monthId ? await findExistingBatchId(monthId) : undefined);
 
   if ((!mappingOk || !detectedCompetence || !ocrOk) && !manualReview) {
     const batch = await upsertBatch({
@@ -224,12 +177,9 @@ async function parseAndPersist({
       fullDate: formattedFullDate
     });
 
-    await prisma.importBatch.update({
-      where: { id: batch.id },
-      data: {
-        totalLines: targetBatchId ? baseTotalLines : parsed.rows.length,
-        validLines: targetBatchId ? baseValidLines : 0
-      }
+    await updateBatchStats(batch.id, {
+      totalLines: targetBatchId ? undefined : parsed.rows.length,
+      validLines: targetBatchId ? undefined : 0
     });
 
     await moveFileAndUpdateAsset({
@@ -243,13 +193,12 @@ async function parseAndPersist({
   }
 
   if (!monthRecord) {
-    return { status: "failed", reason: "Competencia nao detectada" };
+    throw new IngestionError("Competencia nao detectada", IngestionErrorCodes.COMPETENCE_NOT_DETECTED);
   }
 
-  const month = monthRecord;
   const batch = await upsertBatch({
     existingBatchId: targetBatchId,
-    monthId: month.id,
+    monthId: monthRecord.id,
     status: BatchStatus.COMPLETED,
     fileAssetId,
     pendingReason: null,
@@ -259,38 +208,133 @@ async function parseAndPersist({
     fullDate: formattedFullDate
   });
 
-  const knownPartNumbers = await loadKnownPartNumbers(batch.id);
-  const existingParts: { partNumber: string }[] = targetBatchId
-    ? await prisma.productLine.findMany({
-        where: { importBatchId: batch.id },
-        select: { partNumber: true }
-      })
-    : [];
-  const existingPartNumbers = new Set(existingParts.map((row) => row.partNumber));
-  const duplicatePartNumbers = new Set<string>();
+  const { productLines, errors, duplicatePartNumbers } = await processRows(parsed.rows, {
+    batchId: batch.id,
+    fileType,
+    mapping,
+  });
+
+  if (productLines.length) {
+    await prisma.productLine.createMany({ data: productLines });
+  }
+
+  const finalStatus = productLines.length > 0 ? BatchStatus.COMPLETED : BatchStatus.FAILED;
+  const errorLog = formatErrorLog(errors, duplicatePartNumbers, productLines.length);
+
+  await updateBatchStats(batch.id, {
+    status: finalStatus,
+    totalLines: parsed.rows.length,
+    validLines: productLines.length,
+    errorLog
+  });
+
+  await moveFileAndUpdateAsset({
+    fileAssetId,
+    filePath,
+    status: finalStatus,
+    monthLabel: finalStatus === BatchStatus.COMPLETED ? monthRecord.label : null
+  });
+
+  return {
+    status: finalStatus === BatchStatus.COMPLETED ? "completed" : "failed",
+    batchId: batch.id
+  };
+}
+
+// --- Helper Functions ---
+
+function resolveCompetence(parsed: any, fileName: string, override?: MonthOverride) {
+  const headerText = parsed.headers.join(" ");
+  const competenceText = parsed.rawLines && parsed.headerIndex !== undefined
+    ? parsed.rawLines.slice(0, parsed.headerIndex).join(" ")
+    : headerText;
+
+  const headerCompetence = detectCompetenceFromText(competenceText);
+  const filenameCompetence = hasFullDateInName(fileName) ? null : detectCompetenceFromText(fileName);
+
+  const detectedCompetence = override ?? headerCompetence ?? filenameCompetence;
+  const competenceSource = override ? "manual" : headerCompetence ? "header" : filenameCompetence ? "filename" : null;
+
+  return { detectedCompetence, competenceSource };
+}
+
+function resolveMapping(parsed: any, fileType: FileType, override?: MappingOverride) {
+  const mapping = override
+    ? {
+      partNumber: override.partNumber,
+      unitPrice: override.unitPrice,
+      confidence: { partNumber: 1, unitPrice: 1 }
+    }
+    : detectHeaderMapping(parsed.headers);
+
+  const adjustedMapping = shouldApplyImageFallback(fileType)
+    ? applyImageMappingFallback(mapping, parsed.headers, parsed.rows)
+    : mapping;
+
+  const mappingConfidence = Math.min(adjustedMapping.confidence.partNumber, adjustedMapping.confidence.unitPrice);
+  const mappingOk = Boolean(adjustedMapping.partNumber && adjustedMapping.unitPrice)
+    && adjustedMapping.confidence.partNumber >= 0.8
+    && adjustedMapping.confidence.unitPrice >= 0.8;
+
+  return { mapping: adjustedMapping, mappingOk, mappingConfidence };
+}
+
+function resolveFullDate(parsed: any, fileName: string, override?: MonthOverride) {
+  const rawContent = parsed.rawText ?? parsed.rawLines?.join(" ") ?? "";
+  const dateFromContent = detectFullDateFromText(rawContent);
+  const dateFromFilename = detectFullDateFromText(fileName);
+  const overrideFullDate = override && typeof override.day === "number"
+    ? { year: override.year, month: override.month, day: override.day }
+    : null;
+
+  const fullDateValue = overrideFullDate ?? dateFromContent ?? dateFromFilename;
+  return fullDateValue ? formatFullDate(fullDateValue) : null;
+}
+
+async function findExistingBatchId(monthId: number) {
+  const existingBatch = await prisma.importBatch.findFirst({
+    where: { monthId },
+    orderBy: [{ isActive: "desc" }, { importedAt: "desc" }]
+  });
+  return existingBatch?.id;
+}
+
+async function updateBatchStats(batchId: number, data: any) {
+  await prisma.importBatch.update({
+    where: { id: batchId },
+    data
+  });
+}
+
+async function processRows(rows: ParsedRow[], context: { batchId: number; fileType: FileType; mapping: any }) {
+  const { batchId, fileType, mapping } = context;
+  const knownPartNumbers = await loadKnownPartNumbers(batchId);
+
+  const existingParts = await prisma.productLine.findMany({
+    where: { importBatchId: batchId },
+    select: { partNumber: true }
+  });
+  const existingPartNumbers = new Set(existingParts.map(r => r.partNumber));
+
   const partNumberNeedsExtraction = shouldApplyImageFallback(fileType)
-    && adjustedMapping.partNumber
-    && isDescriptionHeader(adjustedMapping.partNumber);
+    && mapping.partNumber
+    && isDescriptionHeader(mapping.partNumber);
 
   const errors: string[] = [];
-  const productLines = parsed.rows.flatMap((row: ParsedRow, index: number) => {
-    const rawPart = row[adjustedMapping.partNumber as string] ?? "";
-    const rawPrice = row[adjustedMapping.unitPrice as string] ?? "";
-    const rowLine = shouldApplyImageFallback(fileType)
-      ? Object.values(row).join(" ")
-      : "";
+  const duplicatePartNumbers = new Set<string>();
 
-    const extractedPart = partNumberNeedsExtraction
-      ? extractPartNumberFromDescription(rawPart || rowLine)
-      : null;
+  const productLines = rows.flatMap((row, index) => {
+    const rawPart = row[mapping.partNumber] ?? "";
+    const rawPrice = row[mapping.unitPrice] ?? "";
+    const rowLine = shouldApplyImageFallback(fileType) ? Object.values(row).join(" ") : "";
+
+    const extractedPart = partNumberNeedsExtraction ? extractPartNumberFromDescription(rawPart || rowLine) : null;
     const partSource = extractedPart ?? rawPart;
     const allowLineFallback = !shouldApplyImageFallback(fileType);
     const priceCandidate = rawPrice || (allowLineFallback && rowLine ? extractPriceFromLine(rowLine) : "");
     const priceCents = parsePriceToCents(priceCandidate);
 
-    if (partNumberNeedsExtraction && !extractedPart && !priceCents) {
-      return [];
-    }
+    if (partNumberNeedsExtraction && !extractedPart && !priceCents) return [];
 
     const partNumberError = validatePartNumber(partSource);
     if (partNumberError) {
@@ -315,7 +359,7 @@ async function parseAndPersist({
     }
 
     return [{
-      importBatchId: batch.id,
+      importBatchId: batchId,
       partNumber: finalPartNumber,
       rawPartNumber: rawPart,
       unitPriceCents: priceCents as number,
@@ -326,232 +370,15 @@ async function parseAndPersist({
     }];
   });
 
-  if (productLines.length) {
-    await prisma.productLine.createMany({ data: productLines });
-  }
-
-  const mergedValidLines = baseValidLines + productLines.length;
-  const mergedTotalLines = baseTotalLines + parsed.rows.length;
-  const duplicateErrors = Array.from(duplicatePartNumbers).map(
-    (partNumber) => `Duplicado no mesmo mes: ${partNumber}`
-  );
-  const errorMessages = [...errors, ...duplicateErrors];
-  const finalStatus = mergedValidLines > 0 ? BatchStatus.COMPLETED : BatchStatus.FAILED;
-  const errorLog = errorMessages.length
-    ? errorMessages.join("\n")
-    : mergedValidLines > 0
-      ? null
-      : "Nenhuma linha valida encontrada.";
-  await prisma.importBatch.update({
-    where: { id: batch.id },
-    data: {
-      status: finalStatus,
-      totalLines: mergedTotalLines,
-      validLines: mergedValidLines,
-      errorLog
-    }
-  });
-
-  await moveFileAndUpdateAsset({
-    fileAssetId,
-    filePath,
-    status: finalStatus,
-    monthLabel: finalStatus === BatchStatus.COMPLETED ? month.label : null
-  });
-
-  return {
-    status: finalStatus === BatchStatus.COMPLETED ? "completed" : "failed",
-    batchId: batch.id
-  };
+  return { productLines, errors, duplicatePartNumbers: Array.from(duplicatePartNumbers) };
 }
 
-async function hashFile(filePath: string): Promise<string> {
-  const buffer = await fs.readFile(filePath);
-  return crypto.createHash("sha256").update(buffer as unknown as BinaryLike).digest("hex");
-}
+function formatErrorLog(errors: string[], duplicatePartNumbers: string[], validCount: number) {
+  const duplicateErrors = duplicatePartNumbers.map(p => `Duplicado no mesmo mes: ${p}`);
+  const allErrors = [...errors, ...duplicateErrors];
 
-async function getOrCreateMonth(year: number, month: number) {
-  const label = formatMonthLabel(year, month);
-  const existing = await prisma.month.findUnique({ where: { label } });
-  if (existing) {
-    return existing;
-  }
-
-  return prisma.month.create({
-    data: {
-      year,
-      month,
-      label
-    }
-  });
-}
-
-function formatMonthLabel(year: number, month: number) {
-  return `${year}-${month.toString().padStart(2, "0")}`;
-}
-
-type BatchUpsertInput = {
-  existingBatchId?: number;
-  monthId: number | null;
-  status: BatchStatus;
-  fileAssetId: number;
-  pendingReason: string | null;
-  ocrConfidenceAvg: number | null;
-  mappingConfidence: number | null;
-  competenceSource: string | null;
-  fullDate?: string | null;
-};
-
-async function upsertBatch({
-  existingBatchId,
-  monthId,
-  status,
-  fileAssetId,
-  pendingReason,
-  ocrConfidenceAvg,
-  mappingConfidence,
-  competenceSource
-  ,
-  fullDate
-}: BatchUpsertInput) {
-  if (existingBatchId) {
-    const isActive = monthId ? !(await hasActiveBatch(monthId, existingBatchId)) : false;
-    return prisma.importBatch.update({
-      where: { id: existingBatchId },
-      data: {
-        monthId,
-        status,
-        isActive,
-        fileAssetId,
-        pendingReason,
-        ocrConfidenceAvg,
-        mappingConfidence,
-        competenceSource,
-        fullDate
-      }
-    });
-  }
-
-  const isActive = monthId ? !(await hasActiveBatch(monthId)) : false;
-
-  return prisma.importBatch.create({
-    data: {
-      monthId,
-      status,
-      isActive,
-      fileAssetId,
-      pendingReason,
-      ocrConfidenceAvg,
-      mappingConfidence,
-      competenceSource,
-      fullDate
-    }
-  });
-}
-
-async function hasActiveBatch(monthId: number, excludeBatchId?: number): Promise<boolean> {
-  const active = await prisma.importBatch.findFirst({
-    where: {
-      monthId,
-      isActive: true,
-      ...(excludeBatchId ? { id: { not: excludeBatchId } } : {})
-    }
-  });
-  return Boolean(active);
-}
-
-async function loadKnownPartNumbers(currentBatchId: number): Promise<string[]> {
-  const rows = await prisma.productLine.groupBy({
-    by: ["partNumber"],
-    where: { importBatchId: { not: currentBatchId } },
-    _count: { partNumber: true }
-  });
-
-  return rows.map((row: { partNumber: string }) => row.partNumber);
-}
-
-type CorrectionResult = {
-  partNumber: string;
-  status: CorrectionStatus;
-  suggestedPartNumber: string | null;
-  confidence: number | null;
-};
-
-function applyPartNumberCorrection(partNumber: string, knownPartNumbers: string[]): CorrectionResult {
-  if (!knownPartNumbers.length) {
-    return {
-      partNumber,
-      status: CorrectionStatus.NONE,
-      suggestedPartNumber: null,
-      confidence: null
-    };
-  }
-
-  if (!partNumber || knownPartNumbers.includes(partNumber)) {
-    return {
-      partNumber,
-      status: CorrectionStatus.NONE,
-      suggestedPartNumber: null,
-      confidence: null
-    };
-  }
-
-  const match = findBestMatch(partNumber, knownPartNumbers);
-  if (!match) {
-    return {
-      partNumber,
-      status: CorrectionStatus.NEEDS_REVIEW,
-      suggestedPartNumber: null,
-      confidence: null
-    };
-  }
-
-  if (match.score >= PARTNUMBER_AUTO_THRESHOLD) {
-    return {
-      partNumber: match.match,
-      status: CorrectionStatus.AUTO_CORRECTED,
-      suggestedPartNumber: match.match,
-      confidence: match.score
-    };
-  }
-
-  if (match.score >= PARTNUMBER_REVIEW_THRESHOLD) {
-    return {
-      partNumber,
-      status: CorrectionStatus.NEEDS_REVIEW,
-      suggestedPartNumber: match.match,
-      confidence: match.score
-    };
-  }
-
-  return {
-    partNumber,
-    status: CorrectionStatus.NEEDS_REVIEW,
-    suggestedPartNumber: null,
-    confidence: match.score
-  };
-}
-
-type PendingReasonInput = {
-  mapping: { partNumber?: string; unitPrice?: string; confidence: { partNumber: number; unitPrice: number } };
-  mappingOk: boolean;
-  detectedCompetence: { year: number; month: number } | null;
-  ocrOk: boolean;
-};
-
-function resolvePendingReason({ mapping, mappingOk, detectedCompetence, ocrOk }: PendingReasonInput): string | null {
-  if (!ocrOk) {
-    return "low_ocr_confidence";
-  }
-  if (!detectedCompetence) {
-    return "no_competence";
-  }
-  if (!mapping.partNumber || !mapping.unitPrice) {
-    return "no_mapping";
-  }
-  if (!mappingOk) {
-    return "ambiguous_headers";
-  }
+  if (allErrors.length) return allErrors.join("\n");
+  if (validCount === 0) return "Nenhuma linha valida encontrada.";
   return null;
 }
 
@@ -559,228 +386,61 @@ function shouldApplyImageFallback(fileType: FileType) {
   return fileType === FileType.PNG || fileType === FileType.JPG || fileType === FileType.JPEG;
 }
 
-function coerceFileType(value: string): FileType {
-  const normalized = normalizeHeaderValue(value);
-  if (normalized === "csv") {
-    return FileType.CSV;
-  }
-  if (normalized === "xlsx") {
-    return FileType.XLSX;
-  }
-  if (normalized === "xls") {
-    return FileType.XLS;
-  }
-  if (normalized === "png") {
-    return FileType.PNG;
-  }
-  if (normalized === "jpg") {
-    return FileType.JPG;
-  }
-  if (normalized === "jpeg") {
-    return FileType.JPEG;
-  }
-  return FileType.CSV;
-}
-
-function applyImageMappingFallback(
-  mapping: { partNumber?: string; unitPrice?: string; confidence: { partNumber: number; unitPrice: number } },
-  headers: string[],
-  rows: Array<Record<string, string>>
-) {
-  let nextMapping = { ...mapping };
-
-  const partHeader = nextMapping.partNumber;
+function applyImageMappingFallback(mapping: any, headers: string[], rows: any[]) {
+  const partHeader = mapping.partNumber;
   if (!partHeader || columnMostlyEmpty(rows, partHeader)) {
     const descriptionHeader = findDescriptionHeader(headers);
     if (descriptionHeader) {
-      nextMapping = {
-        ...nextMapping,
+      return {
+        ...mapping,
         partNumber: descriptionHeader,
-        confidence: {
-          ...nextMapping.confidence,
-          partNumber: Math.max(nextMapping.confidence.partNumber, 0.9)
-        }
+        confidence: { ...mapping.confidence, partNumber: Math.max(mapping.confidence.partNumber, 0.9) }
       };
     }
   }
-
-  return nextMapping;
+  return mapping;
 }
 
-function columnMostlyEmpty(rows: Array<Record<string, string>>, header: string) {
-  if (!rows.length) {
-    return false;
-  }
-  let total = 0;
-  let empty = 0;
+function columnMostlyEmpty(rows: any[], header: string) {
+  if (!rows.length) return false;
+  let total = 0, empty = 0;
   for (const row of rows) {
     if (Object.prototype.hasOwnProperty.call(row, header)) {
-      total += 1;
-      if (!row[header]?.trim()) {
-        empty += 1;
-      }
+      total++;
+      if (!row[header]?.trim()) empty++;
     }
   }
-  if (total === 0) {
-    return true;
-  }
-  return empty / total >= 0.8;
-}
-
-function isDescriptionHeader(header: string) {
-  const normalized = normalizeHeaderValue(header);
-  return normalized.includes("description") || normalized.includes("descriptions") || normalized.includes("quantities");
+  return total === 0 ? true : empty / total >= 0.8;
 }
 
 function extractPartNumberFromDescription(value: string): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const cleanedValue = value.replace(/\b\d+\s*(?:PCS|PC|PES)\b/gi, " ");
-  const upper = cleanedValue.toUpperCase();
+  if (!value) return null;
+  const cleaned = value.replace(/\b\d+\s*(?:PCS|PC|PES)\b/gi, " ");
+  const upper = cleaned.toUpperCase();
   const priceIndex = upper.indexOf("US");
-  const trimmed = (priceIndex >= 0 ? cleanedValue.slice(0, priceIndex) : cleanedValue)
+  const trimmed = (priceIndex >= 0 ? cleaned.slice(0, priceIndex) : cleaned)
     .replace(/\s*\/\s*/g, "/")
     .replace(/([A-Z0-9/-]{4,})(\d{2,5}\s*(?:PCS|PC|PES))/gi, "$1 $2");
 
   const patternMatch = trimmed.match(/[A-Z]{1,6}\d{1,4}-[A-Z0-9/]+/i);
-  if (patternMatch) {
-    return patternMatch[0];
+  if (patternMatch) return patternMatch[0];
+
+  const candidates = trimmed.replace(/[()]/g, " ").split(/\s+/).map(t => t.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "")).filter(Boolean);
+  const structured = candidates.filter(t => /[A-Za-z]/.test(t) && /\d/.test(t) && /[-/]/.test(t) && t.length >= 4);
+  if (structured.length) return structured[0];
+
+  if (/\bPCS\b|\bPC\b/.test(upper)) {
+    const withDigits = candidates.filter(t => /[A-Za-z]/.test(t) && /\d/.test(t) && t.length >= 4);
+    if (withDigits.length) return withDigits[0];
   }
-
-  const candidates = trimmed
-    .replace(/[()]/g, " ")
-    .split(/\s+/)
-    .map((token) => token.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, ""))
-    .filter(Boolean);
-
-  const structured = candidates.filter(
-    (token) => /[A-Za-z]/.test(token) && /\d/.test(token) && /[-/]/.test(token) && token.length >= 4
-  );
-  if (structured.length) {
-    return structured[0];
-  }
-
-  const hasQuantity = /\bPCS\b|\bPC\b/.test(upper);
-  if (hasQuantity) {
-    const withDigits = candidates.filter((token) => /[A-Za-z]/.test(token) && /\d/.test(token) && token.length >= 4);
-    if (withDigits.length) {
-      return withDigits[0];
-    }
-  }
-
   return null;
 }
 
 function extractPriceFromLine(value: string): string {
-  if (!value) {
-    return "";
-  }
+  if (!value) return "";
   const normalized = value.replace(/O/g, "0");
   const match = normalized.match(/U\s*S\s*\$?\s*\d+(?:[.,]\d+)?/i);
-  if (match) {
-    return match[0].replace(/[^0-9.,]/g, "");
-  }
+  if (match) return match[0].replace(/[^0-9.,]/g, "");
   const numeric = normalized.match(/\b\d+[.,]\d+\b/);
   return numeric ? numeric[0] : "";
-}
-
-type MoveFileInput = {
-  fileAssetId: number;
-  filePath: string;
-  status: BatchStatus;
-  monthLabel: string | null;
-};
-
-async function moveFileAndUpdateAsset({ fileAssetId, filePath, status, monthLabel }: MoveFileInput) {
-  const destinationDir = resolveDestinationDir(status, monthLabel);
-  if (!destinationDir) {
-    return;
-  }
-
-  await fs.mkdir(destinationDir, { recursive: true });
-
-  const baseName = path.basename(filePath);
-  let destinationPath = path.join(destinationDir, baseName);
-  const currentPath = path.resolve(filePath);
-
-  if (path.resolve(destinationPath) !== currentPath) {
-    if (await fileExists(destinationPath)) {
-      destinationPath = makeUniquePath(destinationPath);
-    }
-
-    try {
-      await fs.rename(filePath, destinationPath);
-    } catch (error) {
-      console.error("[ingestion] Falha ao mover arquivo", error);
-      return;
-    }
-  }
-
-  await prisma.fileAsset.update({
-    where: { id: fileAssetId },
-    data: { filePath: destinationPath }
-  });
-}
-
-function resolveDestinationDir(status: BatchStatus, monthLabel: string | null) {
-  if (status === BatchStatus.COMPLETED && monthLabel) {
-    return path.join(PROCESSED_DIR, monthLabel);
-  }
-  if (status === BatchStatus.PENDING_REVIEW) {
-    return PENDING_REVIEW_DIR;
-  }
-  if (status === BatchStatus.FAILED) {
-    return FAILED_DIR;
-  }
-  return null;
-}
-
-async function fileExists(filePath: string) {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureSupabaseStorage(fileAsset: FileAsset, localPath: string, fileHash: string) {
-  if (!isSupabaseConfigured() || fileAsset.storagePath) {
-    return;
-  }
-
-  const dateFolder = new Date().toISOString().split("T")[0];
-  const fileName = encodeURIComponent(path.basename(localPath));
-  const storageKey = path.posix.join("imports", dateFolder, `${fileHash}-${fileName}`);
-
-  try {
-    const uploaded = await uploadFileToSupabase(localPath, storageKey);
-    if (uploaded) {
-      await prisma.fileAsset.update({
-        where: { id: fileAsset.id },
-        data: {
-          storagePath: uploaded.path,
-          storageUrl: uploaded.url
-        }
-      });
-    }
-  } catch (error) {
-    console.warn("[storage] erro ao fazer upload para Supabase:", (error as Error).message ?? error);
-  }
-}
-
-function makeUniquePath(filePath: string) {
-  const ext = path.extname(filePath);
-  const base = path.basename(filePath, ext);
-  const dir = path.dirname(filePath);
-  return path.join(dir, `${base}-${Date.now()}${ext}`);
-}
-
-function hasFullDateInName(fileName: string) {
-  const normalized = fileName.toLowerCase();
-  const yyyyMmDd = /20\d{2}[\/\-_.](0?[1-9]|1[0-2])[\/\-_.](0?[1-9]|[12]\d|3[01])/;
-  const ddMmYyyy = /(0?[1-9]|[12]\d|3[01])[\/\-_.](0?[1-9]|1[0-2])[\/\-_.]20\d{2}/;
-  return yyyyMmDd.test(normalized) || ddMmYyyy.test(normalized);
 }
